@@ -227,10 +227,12 @@ export function rotateArray<T>(arr: T[], offset: number): T[] {
   return [...arr.slice(normalizedOffset), ...arr.slice(0, normalizedOffset)];
 }
 
-// 7. Get Current Turn Order (shifts by round)
+// 7. Get Current Turn Order (Snake Draft)
 export function getCurrentTurnOrder(game: GameState): PlayerId[] {
-  const offset = (game.round - 1) % game.baseTurnOrder.length;
-  return rotateArray(game.baseTurnOrder, offset);
+  if (game.round % 2 === 0) {
+    return [...game.baseTurnOrder].reverse();
+  }
+  return game.baseTurnOrder;
 }
 
 // 8. Get Current PlayerId

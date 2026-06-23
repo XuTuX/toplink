@@ -14,7 +14,8 @@ import {
   forceEndGame,
   kickPlayer,
   resetGame,
-  getRoom
+  getRoom,
+  rejoinHost
 } from './gameManager';
 
 export const handleSocketConnection = (
@@ -31,12 +32,24 @@ export const handleSocketConnection = (
   };
 
   socket.on('host_create_room', () => {
-    const roomCode = createRoom(socket.id);
+    const { roomCode, hostSecret } = createRoom(socket.id);
     socket.data.isHost = true;
     socket.data.roomCode = roomCode;
     socket.join(roomCode);
-    socket.emit('room_created', roomCode);
+    socket.emit('room_created', roomCode, hostSecret);
     sendStateUpdate(roomCode);
+  });
+
+  socket.on('host_rejoin', (roomCode, hostSecret) => {
+    if (rejoinHost(roomCode, hostSecret, socket.id)) {
+      socket.data.isHost = true;
+      socket.data.roomCode = roomCode;
+      socket.join(roomCode);
+      socket.emit('host_rejoined');
+      sendStateUpdate(roomCode);
+    } else {
+      socket.emit('error_message', '방을 찾을 수 없거나 호스트 인증에 실패했습니다.');
+    }
   });
 
   socket.on('host_start_game', (roomCode) => {

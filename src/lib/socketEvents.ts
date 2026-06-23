@@ -2,7 +2,8 @@ import { GameState, PlayerId } from './rules';
 
 // Server -> Client
 export interface ServerToClientEvents {
-  room_created: (roomCode: string) => void;
+  room_created: (roomCode: string, hostSecret: string) => void;
+  host_rejoined: () => void;
   player_joined: (playerId: PlayerId) => void;
   game_state_update: (state: GameState, roomCode: string) => void;
   error_message: (message: string) => void;
@@ -13,6 +14,7 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   // Host actions
   host_create_room: () => void;
+  host_rejoin: (roomCode: string, hostSecret: string) => void;
   host_start_game: (roomCode: string) => void;
   host_force_skip: (roomCode: string) => void;
   host_force_end: (roomCode: string) => void;

@@ -14,6 +14,7 @@ interface BoardIsometricProps {
   onCellHover?: (x: number, y: number | null) => void;
   previewColor?: string;
   predictedCells?: { x: number; y: number; z: number; color: string }[];
+  highlightedCube?: { x: number; y: number; z: number } | null;
 }
 
 const CUBE_LOCAL_VERTICES = [
@@ -45,6 +46,7 @@ export default function BoardIsometric({
   onCellHover,
   previewColor,
   predictedCells = [],
+  highlightedCube = null,
 }: BoardIsometricProps) {
   const [localHoveredCell, setLocalHoveredCell] = useState<{ x: number; y: number } | null>(null);
 
@@ -96,8 +98,8 @@ export default function BoardIsometric({
   const handleDragEnd = () => {
     setIsMouseDown(false);
     if (hasDragged) {
-      // Snap to nearest 90 degrees
-      const snapped = Math.round(theta / (Math.PI / 2)) * (Math.PI / 2);
+      // Snap to nearest 45 degrees (8 directions)
+      const snapped = Math.round(theta / (Math.PI / 4)) * (Math.PI / 4);
       setTargetTheta(snapped);
     }
   };
@@ -161,25 +163,25 @@ export default function BoardIsometric({
   });
 
   // 3. Shading helpers
-  const getTopFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean) => ({
+  const getTopFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean) => ({
     fill: baseColor,
-    filter: isHovered ? 'brightness(1.3)' : 'brightness(1.15)',
-    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-    strokeWidth: isPreview || isHovered ? 1.5 : 0.8,
+    filter: isHovered || isHighlighted ? 'brightness(1.3)' : 'brightness(1.15)',
+    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+    strokeWidth: isPreview || isHovered || isHighlighted ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
-  const getLeftFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean) => ({
+  const getLeftFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean) => ({
     fill: baseColor,
-    filter: isHovered ? 'brightness(0.9)' : 'brightness(0.75)',
-    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-    strokeWidth: isPreview || isHovered ? 1.5 : 0.8,
+    filter: isHovered || isHighlighted ? 'brightness(0.9)' : 'brightness(0.75)',
+    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+    strokeWidth: isPreview || isHovered || isHighlighted ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
-  const getRightFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean) => ({
+  const getRightFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean) => ({
     fill: baseColor,
-    filter: isHovered ? 'brightness(1.05)' : 'brightness(0.9)',
-    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-    strokeWidth: isPreview || isHovered ? 1.5 : 0.8,
+    filter: isHovered || isHighlighted ? 'brightness(1.05)' : 'brightness(0.9)',
+    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+    strokeWidth: isPreview || isHovered || isHighlighted ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
 
@@ -239,11 +241,13 @@ export default function BoardIsometric({
     color: string;
     isPreview?: boolean;
     isPrediction?: boolean;
+    isHighlighted?: boolean;
   }[] = [];
 
   board.forEach((c) => {
     const proj = projectCoord(c.x, c.y, c.z);
-    cubesToRender.push({ x: c.x, y: c.y, z: c.z, color: getPlayerColor(c.playerId), ...proj });
+    const isHighlighted = highlightedCube?.x === c.x && highlightedCube?.y === c.y && highlightedCube?.z === c.z;
+    cubesToRender.push({ x: c.x, y: c.y, z: c.z, color: getPlayerColor(c.playerId), isHighlighted, ...proj });
   });
 
   previewCells.forEach((c) => {
@@ -332,9 +336,9 @@ export default function BoardIsometric({
                     x={0}
                     y={-L + 3}
                     textAnchor="middle"
-                    className="text-[9px] font-mono fill-zinc-400 opacity-60 pointer-events-none select-none"
+                    className="text-[11px] font-mono fill-zinc-400 opacity-80 pointer-events-none select-none font-bold tracking-widest"
                   >
-                    {cell.x},{cell.y}
+                    {String.fromCharCode(97 + cell.x)}{cell.y + 1}
                   </text>
                 </g>
               );
@@ -359,9 +363,15 @@ export default function BoardIsometric({
                   onMouseEnter={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseEnter(cube.x, cube.y)}
                   onMouseLeave={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseLeave(cube.x)}
                 >
-                  {cubeFacePaths.map((face, i) => (
-                    <path key={i} d={face.d} style={{ ...face.getStyle(cube.color, cube.isPreview, isHovered), transition: 'fill 0.15s, filter 0.15s, stroke 0.15s' }} />
-                  ))}
+                {/* 2. Cube Faces */}
+                {cubeFacePaths.map((face, faceIdx) => (
+                  <path
+                    key={faceIdx}
+                    d={face.d}
+                    {...face.getStyle(cube.color, cube.isPreview, isHovered, cube.isHighlighted)}
+                    className="transition-all duration-300 pointer-events-none"
+                  />
+                ))}
                 </g>
               );
             })}

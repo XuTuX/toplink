@@ -3,6 +3,7 @@ import { GameState, Player, PlayerId, applyMove, calculateResults, getCurrentPla
 interface Room {
   roomCode: string;
   hostSocketId: string;
+  hostSecret: string;
   gameState: GameState;
   players: Player[]; // Connected players
 }
@@ -11,6 +12,10 @@ const rooms = new Map<string, Room>();
 
 const generateRoomCode = () => {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
+};
+
+const generateHostSecret = () => {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
 
 const getInitialState = (id: string): GameState => ({
@@ -27,20 +32,34 @@ const getInitialState = (id: string): GameState => ({
 
 const DEFAULT_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#eab308'];
 
-export const createRoom = (hostSocketId: string): string => {
+export const createRoom = (hostSocketId: string): { roomCode: string, hostSecret: string } => {
   let roomCode = generateRoomCode();
   while (rooms.has(roomCode)) {
     roomCode = generateRoomCode();
   }
 
+  const hostSecret = generateHostSecret();
+
   rooms.set(roomCode, {
     roomCode,
     hostSocketId,
+    hostSecret,
     gameState: getInitialState(roomCode),
     players: [],
   });
 
-  return roomCode;
+  return { roomCode, hostSecret };
+};
+
+export const rejoinHost = (roomCode: string, hostSecret: string, newSocketId: string): boolean => {
+  const room = rooms.get(roomCode);
+  if (!room) return false;
+  
+  if (room.hostSecret === hostSecret) {
+    room.hostSocketId = newSocketId;
+    return true;
+  }
+  return false;
 };
 
 export const getRoom = (roomCode: string): Room | undefined => {
