@@ -80,8 +80,8 @@ export const handleSocketConnection = (
     }
   });
 
-  socket.on('player_join', (roomCode, nickname) => {
-    const result = addPlayer(roomCode, nickname);
+  socket.on('player_join', (roomCode, nickname, password) => {
+    const result = addPlayer(roomCode, nickname, password);
     if (result.success && result.playerId) {
       socket.data.isHost = false;
       socket.data.roomCode = roomCode;

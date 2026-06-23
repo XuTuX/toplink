@@ -47,23 +47,36 @@ export const getRoom = (roomCode: string): Room | undefined => {
   return rooms.get(roomCode);
 };
 
-export const addPlayer = (roomCode: string, nickname: string): { success: boolean, message?: string, playerId?: PlayerId } => {
+export const addPlayer = (roomCode: string, nickname: string, password?: string): { success: boolean, message?: string, playerId?: PlayerId } => {
   const room = rooms.get(roomCode);
   if (!room) return { success: false, message: 'Room not found' };
+
+  // 1. Check for reconnection: if the nickname already exists in the room
+  const existingPlayer = room.players.find(
+    (player) => player.name.toLowerCase() === nickname.toLowerCase()
+  );
+  if (existingPlayer) {
+    if (existingPlayer.password && existingPlayer.password === password) {
+      // Return their existing playerId so they can reconnect
+      return { success: true, playerId: existingPlayer.id };
+    } else {
+      return { success: false, message: 'Invalid password or nickname is already in use' };
+    }
+  }
+
   if (room.gameState.status !== 'setup') return { success: false, message: 'Game has already started' };
   if (room.players.length >= 4) return { success: false, message: 'Room is full' };
-  if (room.players.some((player) => player.name.toLowerCase() === nickname.toLowerCase())) {
-    return { success: false, message: 'Nickname is already in use' };
-  }
 
   const playerId = (['P1', 'P2', 'P3', 'P4'] as PlayerId[]).find(
     (id) => !room.players.some((player) => player.id === id)
   );
   if (!playerId) return { success: false, message: 'Room is full' };
+  
   const newPlayer: Player = {
     id: playerId,
     name: nickname,
     color: DEFAULT_COLORS[room.players.length % DEFAULT_COLORS.length],
+    password: password,
   };
 
   room.players.push(newPlayer);

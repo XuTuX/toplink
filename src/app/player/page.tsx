@@ -11,6 +11,7 @@ export default function PlayerPage() {
   const { socket, isConnected, error } = useSocket();
   const [roomCode, setRoomCode] = useState('');
   const [nickname, setNickname] = useState('');
+  const [password, setPassword] = useState('');
   const [joined, setJoined] = useState(false);
   const [playerId, setPlayerId] = useState<PlayerId | null>(null);
 
@@ -32,8 +33,8 @@ export default function PlayerPage() {
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (socket && roomCode.trim() && nickname.trim()) {
-      socket.emit('player_join', roomCode.toUpperCase(), nickname.trim());
+    if (socket && roomCode.trim() && nickname.trim() && password.trim()) {
+      socket.emit('player_join', roomCode.toUpperCase(), nickname.trim(), password.trim());
     }
   };
 
@@ -183,12 +184,12 @@ export default function PlayerPage() {
       <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-zinc-950 p-6">
         <form onSubmit={handleJoin} className="w-full max-w-sm space-y-6">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-black text-white">Join Game</h1>
-            <p className="text-zinc-500 mt-2">Enter the room code from the host</p>
+            <h1 className="text-3xl font-black text-white">게임 참가</h1>
+            <p className="text-zinc-500 mt-2">호스트가 제공한 방 코드를 입력하세요</p>
           </div>
           {!isConnected && (
             <div className="p-4 bg-amber-500/10 text-amber-500 rounded-xl text-center text-sm font-bold border border-amber-500/20">
-              Connecting to server...
+              서버에 연결 중...
             </div>
           )}
           {error && (
@@ -198,7 +199,7 @@ export default function PlayerPage() {
           )}
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Room Code</label>
+              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">방 코드</label>
               <input
                 type="text"
                 value={roomCode}
@@ -210,24 +211,36 @@ export default function PlayerPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Nickname</label>
+              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">닉네임</label>
               <input
                 type="text"
                 value={nickname}
                 onChange={e => setNickname(e.target.value)}
-                placeholder="Your Name"
+                placeholder="이름"
                 required
                 maxLength={12}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-center text-xl font-bold text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">비밀번호 (재접속용)</label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="****"
+                required
+                maxLength={20}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-center text-xl font-bold text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
               />
             </div>
           </div>
           <button
             type="submit"
-            disabled={!isConnected || !roomCode || !nickname}
+            disabled={!isConnected || !roomCode || !nickname || !password}
             className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-lg font-black transition-all active:scale-95"
           >
-            Join Room
+            방 참가하기
           </button>
         </form>
       </div>
@@ -241,8 +254,8 @@ export default function PlayerPage() {
           <User className="w-8 h-8 text-white" />
         </div>
         <div>
-          <h2 className="text-2xl font-black text-white">Welcome, {me?.name}!</h2>
-          <p className="text-zinc-500 mt-2">Waiting for the host to start the game...</p>
+          <h2 className="text-2xl font-black text-white">환영합니다, {me?.name}!</h2>
+          <p className="text-zinc-500 mt-2">호스트가 게임을 시작하기를 기다리는 중...</p>
         </div>
         <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mt-8"></div>
       </div>
@@ -258,16 +271,16 @@ export default function PlayerPage() {
           <div className="w-8 h-8 rounded-full border-2" style={{ borderColor: me?.color, backgroundColor: me?.color + '20' }} />
           <div>
             <div className="text-sm font-black text-white">{me?.name}</div>
-            <div className="text-[10px] text-zinc-500 uppercase font-bold">Player {me?.id}</div>
+            <div className="text-[10px] text-zinc-500 uppercase font-bold">플레이어 {me?.id}</div>
           </div>
         </div>
         <div className="text-right flex items-center gap-2">
           {mode === 'predict' && (
             <span className="text-[10px] bg-purple-500/20 text-purple-400 px-2 py-1 rounded font-bold uppercase tracking-wider">
-              Prediction Mode
+              예측 모드
             </span>
           )}
-          <div className="text-[10px] text-zinc-500 uppercase font-bold">Round {round}</div>
+          <div className="text-[10px] text-zinc-500 uppercase font-bold">라운드 {round}</div>
         </div>
       </header>
 
@@ -282,7 +295,7 @@ export default function PlayerPage() {
                 mode === 'action' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              <Activity className="w-4 h-4 inline-block mr-1.5" /> Action
+              <Activity className="w-4 h-4 inline-block mr-1.5" /> 행동
             </button>
             <button
               onClick={() => setMode('predict')}
@@ -290,7 +303,7 @@ export default function PlayerPage() {
                 mode === 'predict' ? 'bg-purple-600 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              <Eye className="w-4 h-4 inline-block mr-1.5" /> Predict
+              <Eye className="w-4 h-4 inline-block mr-1.5" /> 예측
             </button>
           </div>
 
@@ -300,15 +313,15 @@ export default function PlayerPage() {
             }`}>
               <div className="flex items-center justify-center gap-2 font-black text-sm uppercase tracking-widest">
                 {isMyTurn ? (
-                  <><Activity className="w-5 h-5 animate-pulse" /> IT&apos;S YOUR TURN</>
+                  <><Activity className="w-5 h-5 animate-pulse" /> 당신의 차례입니다</>
                 ) : (
-                  <><User className="w-5 h-5" /> WAITING FOR {players.find(p => p.id === activePlayerId)?.name}</>
+                  <><User className="w-5 h-5" /> 대기 중: {players.find(p => p.id === activePlayerId)?.name}</>
                 )}
               </div>
             </div>
           ) : (
             <div className="bg-purple-900/20 border border-purple-500/30 rounded-2xl p-4 text-center space-y-3">
-              <div className="text-xs text-purple-400 font-bold">Select opponent to predict:</div>
+              <div className="text-xs text-purple-400 font-bold">예측할 상대를 선택하세요:</div>
               <div className="flex justify-center gap-3">
                 {opponents.map(p => (
                   <button
@@ -324,13 +337,13 @@ export default function PlayerPage() {
                   onClick={() => setPredictShape('1x1')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${predictShape === '1x1' ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-zinc-500 hover:text-white'}`}
                 >
-                  1x1 Cube
+                  1x1 큐브
                 </button>
                 <button
                   onClick={() => setPredictShape('L-Block')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${predictShape === 'L-Block' ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-zinc-500 hover:text-white'}`}
                 >
-                  L-Block
+                  L-블록
                 </button>
               </div>
             </div>
@@ -367,12 +380,12 @@ export default function PlayerPage() {
           <div className="w-full max-w-sm space-y-3">
             {mode === 'predict' && (
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex justify-between items-center text-sm">
-                <span className="text-zinc-400 font-bold text-xs uppercase tracking-wider">Z Height: {manualZ !== null ? manualZ : validation.landingZ ?? 0}</span>
+                <span className="text-zinc-400 font-bold text-xs uppercase tracking-wider">Z 높이: {manualZ !== null ? manualZ : validation.landingZ ?? 0}</span>
                 <div className="flex gap-2">
                   <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-white font-bold hover:bg-zinc-700">-</button>
                   <button onClick={() => setManualZ((manualZ !== null ? manualZ : validation.landingZ ?? 0) + 1)} className="w-8 h-8 bg-zinc-800 rounded-lg text-white font-bold hover:bg-zinc-700">+</button>
                   {manualZ !== null && (
-                    <button onClick={() => setManualZ(null)} className="px-3 h-8 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-purple-600/40">Auto</button>
+                    <button onClick={() => setManualZ(null)} className="px-3 h-8 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-purple-600/40">자동</button>
                   )}
                 </div>
               </div>
@@ -392,7 +405,7 @@ export default function PlayerPage() {
                 disabled={mode === 'predict' && predictShape === '1x1'}
                 className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2"
               >
-                <RotateCw className="w-5 h-5" /> Rotate
+                <RotateCw className="w-5 h-5" /> 회전
               </button>
               <button
                 onClick={handleConfirmMove}
@@ -402,9 +415,9 @@ export default function PlayerPage() {
                 }`}
               >
                 {mode === 'predict' ? (
-                  <><Layers className="w-5 h-5" /> Predict</>
+                  <><Layers className="w-5 h-5" /> 예측</>
                 ) : (
-                  <><Send className="w-5 h-5" /> Confirm</>
+                  <><Send className="w-5 h-5" /> 확인</>
                 )}
               </button>
             </div>
@@ -413,7 +426,7 @@ export default function PlayerPage() {
                 onClick={handleClearPredictions}
                 className="w-full py-3 mt-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 border border-zinc-800"
               >
-                <RefreshCcw className="w-4 h-4" /> Clear Predictions
+                <RefreshCcw className="w-4 h-4" /> 예측 초기화
               </button>
             )}
           </div>

@@ -18,13 +18,13 @@ export default function SetupPage() {
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-400 bg-indigo-500/10 rounded-full border border-indigo-500/20 mb-5">
             <Layers className="w-3.5 h-3.5" />
-            3D Block Strategy Board Game
+            3D 블록 전략 보드 게임
           </div>
           <h1 className="text-5xl font-black mt-2 tracking-tight bg-gradient-to-r from-blue-400 via-indigo-400 via-purple-400 to-pink-500 bg-clip-text text-transparent">
             TOP LINK
           </h1>
           <p className="text-zinc-400 mt-4 text-sm leading-relaxed font-medium">
-            Deploy L-blocks, outmaneuver opponents, and establish territory control on a 5×5 isometric board.
+            L-블록을 배치하고, 상대를 견제하며, 5×5 보드에서 더 많은 영역을 장악하세요.
           </p>
         </div>
 
@@ -37,8 +37,8 @@ export default function SetupPage() {
               <User className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-lg font-black text-white group-hover:text-indigo-300 transition-colors">Join as Player</div>
-              <div className="text-sm text-zinc-500 mt-1 font-medium">Connect to an existing room via mobile</div>
+              <div className="text-lg font-black text-white group-hover:text-indigo-300 transition-colors">플레이어로 참가하기</div>
+              <div className="text-sm text-zinc-500 mt-1 font-medium">모바일을 통해 기존 방에 접속하기</div>
             </div>
           </button>
 
@@ -50,8 +50,8 @@ export default function SetupPage() {
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-lg font-black text-white group-hover:text-emerald-300 transition-colors">Host a Game</div>
-              <div className="text-sm text-zinc-500 mt-1 font-medium">Create a new room and manage the board</div>
+              <div className="text-lg font-black text-white group-hover:text-emerald-300 transition-colors">게임 호스팅하기</div>
+              <div className="text-sm text-zinc-500 mt-1 font-medium">새로운 방을 만들고 보드를 관리하기</div>
             </div>
           </button>
         </div>

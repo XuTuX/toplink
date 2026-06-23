@@ -6,6 +6,7 @@ export interface Player {
   id: PlayerId;
   name: string;
   color: string; // e.g. 'Blue', 'Red', 'Green', 'Yellow' or CSS color code
+  password?: string;
 }
 
 export interface Coord {

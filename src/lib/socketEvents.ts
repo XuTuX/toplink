@@ -20,7 +20,7 @@ export interface ClientToServerEvents {
   host_reset_game: (roomCode: string) => void;
 
   // Player actions
-  player_join: (roomCode: string, nickname: string) => void;
+  player_join: (roomCode: string, nickname: string, password?: string) => void;
   player_move: (roomCode: string, playerId: PlayerId, origin: { x: number, y: number, z?: number }, rotationIndex: number) => void;
 }
 

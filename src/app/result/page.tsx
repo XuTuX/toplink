@@ -52,15 +52,15 @@ export default function ResultPage() {
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-100 p-6 relative overflow-hidden">
         <div className="absolute inset-0 bg-radial from-indigo-500/5 via-transparent to-transparent pointer-events-none" />
         <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-3xl text-center space-y-5 max-w-sm backdrop-blur-xl shadow-2xl z-10 relative">
-          <h3 className="font-black text-zinc-100 text-lg tracking-tight">No Finished Session Found</h3>
+          <h3 className="font-black text-zinc-100 text-lg tracking-tight">종료된 세션을 찾을 수 없습니다</h3>
           <p className="text-xs text-zinc-500 leading-relaxed font-medium">
-            You must complete a game session first to calculate and view the final standings.
+            최종 순위를 계산하고 보려면 먼저 게임 세션을 완료해야 합니다.
           </p>
           <button
             onClick={() => router.push('/')}
             className="w-full py-4 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl text-sm font-extrabold transition-all mt-4"
           >
-            Return to Lobby
+            로비로 돌아가기
           </button>
         </div>
       </div>
@@ -94,7 +94,7 @@ export default function ResultPage() {
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Trophy className="h-5.5 w-5.5 text-amber-500" />
-            <h1 className="font-black text-lg text-zinc-50 tracking-tight">Game Results</h1>
+            <h1 className="font-black text-lg text-zinc-50 tracking-tight">게임 결과</h1>
           </div>
 
           <button
@@ -102,7 +102,7 @@ export default function ResultPage() {
             className="py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white font-black rounded-xl text-xs flex items-center gap-2 transition-all shadow-lg shadow-purple-500/25 cursor-pointer"
           >
             <RefreshCcw className="h-3.5 w-3.5" />
-            Restart New Game
+            새 게임 시작하기
           </button>
         </div>
       </header>
@@ -124,13 +124,13 @@ export default function ResultPage() {
             </div>
 
             <h2 className="text-3xl font-black tracking-tight text-zinc-50">
-              {winners.length > 1 ? "Draw / Tie Match!" : 'Match Victory!'}
+              {winners.length > 1 ? "무승부!" : '승리!'}
             </h2>
             
             <p className="text-xs text-zinc-400 mt-2 max-w-sm mx-auto leading-relaxed font-semibold">
               {winners.length > 1
-                ? `Players ${winners.map((w) => w.name).join(' & ')} tied for 1st place after tiebreakers!`
-                : `${winners[0]?.name} dominated the board grid!`
+                ? `플레이어 ${winners.map((w) => w.name).join(', ')}님이 동률로 공동 1위를 차지했습니다!`
+                : `${winners[0]?.name}님이 보드를 장악했습니다!`
               }
             </p>
 
@@ -155,10 +155,10 @@ export default function ResultPage() {
           <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] backdrop-blur-xl shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-[10px] text-zinc-500 uppercase tracking-widest">
-                Final Leaderboard
+                최종 순위표
               </h3>
               <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider">
-                Hover row to highlight largest area
+                행에 마우스를 올리면 가장 큰 영역이 강조됩니다
               </span>
             </div>
 
@@ -197,18 +197,18 @@ export default function ResultPage() {
                             <span className="font-extrabold text-zinc-200 text-xs sm:text-sm">{p.name}</span>
                           </div>
                           <span className="text-[9px] text-zinc-500 font-bold block mt-0.5 uppercase tracking-wider">
-                            Max Zone: {res.largestConnectionSize} cells • Score: {res.score}
+                            최대 영역: {res.largestConnectionSize} 칸 • 점수: {res.score}
                           </span>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-4 text-right">
                         <div className="text-[9.5px] text-zinc-500 space-y-0.5 font-medium hidden sm:block">
-                          <div>Grid Coverage: <strong>{res.topViewCellCount}</strong></div>
-                          <div>Elevation Score: <strong>{res.heightScore}</strong></div>
+                          <div>그리드 점유율: <strong>{res.topViewCellCount}</strong></div>
+                          <div>높이 점수: <strong>{res.heightScore}</strong></div>
                         </div>
                         <div className="text-lg font-black text-zinc-200">
-                          {res.score} <span className="text-[10px] text-zinc-500 font-bold">pts</span>
+                          {res.score} <span className="text-[10px] text-zinc-500 font-bold">점</span>
                         </div>
                       </div>
                     </div>
@@ -225,7 +225,7 @@ export default function ResultPage() {
           <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] backdrop-blur-xl shadow-2xl flex flex-col items-center">
             <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-2 w-full">
               <LayoutGrid className="h-4.5 w-4.5 text-purple-400" />
-              Final Territory Top-View Grid
+              최종 영토 탑 뷰 그리드
             </h3>
 
             <div className="grid grid-cols-5 gap-2.5 w-64 h-64 bg-zinc-950 p-4 rounded-[24px] border border-zinc-900 shadow-inner">
@@ -255,14 +255,14 @@ export default function ResultPage() {
 
             {highlightedPlayer ? (
               <p className="text-[10px] text-zinc-400 mt-4 text-center font-semibold">
-                Highlighting connection of{' '}
+                다음 플레이어의 연결 영역 강조 중:{' '}
                 <span className="font-bold" style={{ color: players.find((p) => p.id === highlightedPlayer)?.color }}>
                   {players.find((p) => p.id === highlightedPlayer)?.name}
                 </span>
               </p>
             ) : (
               <p className="text-[10px] text-zinc-500 mt-4 text-center font-medium">
-                Hover over player&apos;s name above to see their territory.
+                플레이어의 영토를 보려면 위 플레이어 이름에 마우스를 올리세요.
               </p>
             )}
           </div>
@@ -271,7 +271,7 @@ export default function ResultPage() {
           <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] backdrop-blur-xl shadow-2xl flex flex-col max-h-[250px]">
             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-4 flex items-center gap-2">
               <ScrollText className="w-4.5 h-4.5 text-zinc-500" />
-              Game Replay History ({moves.length} moves)
+              게임 리플레이 기록 ({moves.length} 이동)
             </span>
 
             <div className="overflow-y-auto space-y-2 flex-1 pr-1 custom-scrollbar">
@@ -287,16 +287,16 @@ export default function ResultPage() {
                       <div className="w-2.5 h-2.5 rounded-full shadow-sm border border-white/10" style={{ backgroundColor: p?.color }} />
                       <span className="font-extrabold text-zinc-300">{p?.name || move.playerId}</span>
                       <span className="text-zinc-500 font-medium">
-                        at ({move.origin.x},{move.origin.y},{move.origin.z})
+                        위치 ({move.origin.x},{move.origin.y},{move.origin.z})
                       </span>
                     </div>
 
                     <div>
                       {move.valid ? (
-                        <span className="text-emerald-400 font-bold">Valid</span>
+                        <span className="text-emerald-400 font-bold">유효</span>
                       ) : (
                         <span className="text-rose-400 font-bold cursor-help" title={move.invalidReason}>
-                          Skip
+                          스킵
                         </span>
                       )}
                     </div>
