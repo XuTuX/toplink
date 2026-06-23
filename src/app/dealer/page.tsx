@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, getCurrentTurnOrder, computeTopView, getMaxHeight } from '@/lib/rules';
-import { useRouter } from 'next/navigation';
+import { getCurrentPlayer, computeTopView, getMaxHeight, PlayerId } from '@/lib/rules';
 import BoardIsometric from '@/components/BoardIsometric';
-import { Shield, RotateCcw, AlertOctagon, ListTodo, Eye, Sparkles, HelpCircle, Activity } from 'lucide-react';
+import { Shield, RotateCcw, AlertOctagon, ListTodo, Eye, Activity, Play, Users, XCircle } from 'lucide-react';
+import { useSocket } from '@/components/SocketProvider';
 
 export default function DealerPage() {
-  const router = useRouter();
+  const { socket, isConnected, error } = useSocket();
+  const [roomCode, setRoomCode] = useState<string | null>(null);
+
   const {
     status,
     players,
@@ -17,46 +19,151 @@ export default function DealerPage() {
     round,
     turnIndexInRound,
     endPending,
-    endTriggeredByMoveId,
-    endTriggeredAtRound,
-    forceSkipTurn,
-    forceEndStage,
-    resetGame,
   } = useGameStore();
 
-  const [mounted, setMounted] = useState(false);
-
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    if (socket) {
+      const onRoomCreated = (code: string) => {
+        setRoomCode(code);
+      };
+      socket.on('room_created', onRoomCreated);
 
-  const topView = mounted ? computeTopView(board) : [];
-  const activePlayerId = mounted ? getCurrentPlayer(useGameStore.getState()) : null;
-  const activePlayer = players.find((p) => p.id === activePlayerId);
-  const turnOrder = mounted ? getCurrentTurnOrder(useGameStore.getState()) : [];
-  const maxZ = mounted ? getMaxHeight(board) : 0;
-
-  useEffect(() => {
-    if (mounted && status === 'ended') {
-      router.push('/result');
+      return () => {
+        socket.off('room_created', onRoomCreated);
+      };
     }
-  }, [status, mounted, router]);
+  }, [socket]);
 
-  if (!mounted) {
+  const topView = computeTopView(board);
+  const activePlayerId = players.length > 0 ? getCurrentPlayer(useGameStore.getState()) : null;
+  const activePlayer = players.find((p) => p.id === activePlayerId);
+  const maxZ = getMaxHeight(board);
+
+  const handleCreateRoom = () => {
+    if (socket) {
+      socket.emit('host_create_room');
+    }
+  };
+
+  const handleStartGame = () => {
+    if (socket && roomCode) {
+      socket.emit('host_start_game', roomCode);
+    }
+  };
+
+  const handleForceSkip = () => {
+    if (socket && roomCode) {
+      socket.emit('host_force_skip', roomCode);
+    }
+  };
+
+  const handleForceEnd = () => {
+    if (socket && roomCode) {
+      socket.emit('host_force_end', roomCode);
+    }
+  };
+
+  const handleResetGame = () => {
+    if (socket && roomCode) {
+      socket.emit('host_reset_game', roomCode);
+    }
+  };
+
+  const handleKickPlayer = (playerId: PlayerId) => {
+    if (socket && roomCode) {
+      socket.emit('host_kick_player', roomCode, playerId);
+    }
+  };
+
+  // Lobby state
+  if (!roomCode || status === 'setup') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-white font-sans">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-t-indigo-500 border-zinc-800"></div>
+      <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-100 font-sans p-6">
+        <div className="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-[32px] p-8 text-center space-y-8 shadow-2xl">
+          <div className="mx-auto w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center text-indigo-400 border border-indigo-500/20 mb-4">
+            <Shield className="w-8 h-8" />
+          </div>
+
+          <div>
+            <h1 className="text-3xl font-black text-white tracking-tight mb-2">Host Dashboard</h1>
+            <p className="text-sm text-zinc-400">Create a room and manage the game.</p>
+          </div>
+
+          {!isConnected ? (
+            <div className="p-4 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl text-sm font-bold animate-pulse">
+              Connecting to Server...
+            </div>
+          ) : !roomCode ? (
+            <button
+              onClick={handleCreateRoom}
+              className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-lg font-black transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] active:scale-95"
+            >
+              Create New Room
+            </button>
+          ) : (
+            <div className="space-y-6">
+              <div className="p-6 bg-zinc-950 rounded-2xl border border-zinc-800">
+                <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mb-2">Room Code</p>
+                <p className="text-5xl font-black text-white tracking-widest font-mono">{roomCode}</p>
+              </div>
+
+              <div className="text-left space-y-4">
+                <div className="flex items-center justify-between text-zinc-400">
+                  <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                    <Users className="w-4 h-4" /> Joined Players
+                  </span>
+                  <span className="text-xs font-black">{players.length}/4</span>
+                </div>
+
+                <div className="space-y-2">
+                  {players.length === 0 ? (
+                    <div className="text-center py-4 text-zinc-600 text-xs font-bold uppercase tracking-widest">
+                      Waiting for players to join...
+                    </div>
+                  ) : (
+                    players.map(p => (
+                      <div key={p.id} className="flex items-center justify-between p-3 bg-zinc-950/50 rounded-xl border border-zinc-800">
+                        <div className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: p.color }} />
+                          <span className="text-sm font-bold text-zinc-200">{p.name}</span>
+                        </div>
+                        <button
+                          onClick={() => handleKickPlayer(p.id)}
+                          className="text-rose-400 hover:text-rose-300 transition-colors"
+                        >
+                          <XCircle className="w-5 h-5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleStartGame}
+                disabled={players.length === 0}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white rounded-xl text-lg font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] disabled:shadow-none active:scale-95 flex items-center justify-center gap-2"
+              >
+                <Play className="w-5 h-5" /> Start Game
+              </button>
+            </div>
+          )}
+          {error && (
+            <div className="mt-4 p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-bold text-center">
+              {error}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
+  // Active Game State
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-sans pb-12 relative overflow-hidden selection:bg-zinc-800 selection:text-white">
-      {/* Background glowing decorations */}
       <div className="absolute top-[-10%] right-[10%] h-[400px] w-[600px] rounded-full bg-blue-600/5 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[5%] left-[5%] h-[350px] w-[500px] rounded-full bg-indigo-600/5 blur-[100px] pointer-events-none" />
 
-      {/* Header bar */}
       <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -64,20 +171,17 @@ export default function DealerPage() {
               <Shield className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="font-black text-lg text-zinc-50 tracking-tight">Dealer Console</h1>
-              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Referee Operations Panel</p>
+              <h1 className="font-black text-lg text-zinc-50 tracking-tight">Host Console</h1>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Room:</span>
+                <span className="text-[10px] text-emerald-400 font-black tracking-widest font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded">{roomCode}</span>
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => router.push('/')}
-              className="py-2 px-4 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 hover:border-zinc-700 text-zinc-300 hover:text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
-            >
-              Session Setup
-            </button>
-            <button
-              onClick={resetGame}
+              onClick={handleResetGame}
               className="p-2 bg-zinc-900 border border-zinc-800 hover:bg-red-500/10 hover:border-red-500/20 text-zinc-500 hover:text-red-400 rounded-xl transition-all cursor-pointer"
               title="Reset Session State"
             >
@@ -87,17 +191,13 @@ export default function DealerPage() {
         </div>
       </header>
 
-      {/* Main Content Layout */}
       <main className="max-w-7xl mx-auto px-6 mt-8 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 w-full relative z-10">
         
-        {/* Left Column: Stats, Action Controls & Logging */}
+        {/* Left Column */}
         <div className="lg:col-span-4 space-y-6">
-          
-          {/* Session Overview metrics */}
           <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl backdrop-blur-xl shadow-xl">
             <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-zinc-400" />
-              Session Status
+              <Activity className="w-4 h-4 text-zinc-400" /> Session Status
             </h2>
 
             <div className="grid grid-cols-2 gap-3.5">
@@ -129,10 +229,8 @@ export default function DealerPage() {
               <div className="mt-4 p-4 bg-amber-500/5 border border-amber-500/10 rounded-2xl flex items-start gap-3">
                 <AlertOctagon className="h-4.5 w-4.5 text-amber-500 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-xs font-extrabold text-amber-500 block">End Match Condition Triggered</span>
-                  <span className="text-[10px] text-zinc-500 block mt-1 leading-relaxed font-medium">
-                    Triggered at Round {endTriggeredAtRound} by player{' '}
-                    <strong className="text-zinc-300">{moves.find((m) => m.id === endTriggeredByMoveId)?.playerId}</strong>.
+                  <span className="text-xs font-extrabold text-amber-500 block">End Match Pending</span>
+                  <span className="text-[10px] text-zinc-500 block mt-1 font-medium">
                     The game will conclude when this round finishes.
                   </span>
                 </div>
@@ -140,35 +238,32 @@ export default function DealerPage() {
             )}
           </div>
 
-          {/* Current Turn & Referee Overrides */}
           {status !== 'ended' && (
             <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl backdrop-blur-xl shadow-xl space-y-4">
-              <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                Active Player Details
-              </h2>
+              <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Active Player Details</h2>
 
               <div className="flex items-center gap-3 p-3.5 bg-zinc-950/40 border border-zinc-900 rounded-2xl">
                 <div
-                  className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-md shadow-black/50"
+                  className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-md"
                   style={{ backgroundColor: activePlayer?.color }}
                 />
                 <div>
                   <span className="text-xs font-black text-zinc-100">{activePlayer?.name}</span>
                   <span className="text-[9px] text-zinc-500 block mt-0.5 font-bold uppercase tracking-wider">
-                    Seat {activePlayerId} • Sequence: {turnIndexInRound + 1}/4
+                    Seat {activePlayerId} • Sequence: {turnIndexInRound + 1}/{players.length}
                   </span>
                 </div>
               </div>
 
               <div className="space-y-2 pt-2">
                 <button
-                  onClick={forceSkipTurn}
+                  onClick={handleForceSkip}
                   className="w-full py-3 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-white text-zinc-400 rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
                 >
-                  Force Skip Current Turn (Skipped)
+                  Force Skip Current Turn
                 </button>
                 <button
-                  onClick={forceEndStage}
+                  onClick={handleForceEnd}
                   className="w-full py-3 bg-rose-500/10 border border-rose-500/15 hover:bg-rose-500/20 hover:border-rose-500/25 rounded-2xl text-xs font-extrabold transition-all text-rose-400 cursor-pointer"
                 >
                   Force Terminate Stage & Score
@@ -177,11 +272,11 @@ export default function DealerPage() {
             </div>
           )}
 
-          {/* Replay History Log */}
+          {/* Replay Log */}
           <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl backdrop-blur-xl shadow-xl flex flex-col max-h-[300px]">
             <div className="flex items-center gap-2 mb-4 shrink-0">
               <ListTodo className="h-4.5 w-4.5 text-zinc-500" />
-              <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Replay Log</h2>
+              <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Action Log</h2>
             </div>
             
             <div className="overflow-y-auto space-y-2.5 flex-1 pr-1 custom-scrollbar">
@@ -193,35 +288,21 @@ export default function DealerPage() {
                 [...moves].reverse().map((move) => {
                   const p = players.find((pl) => pl.id === move.playerId);
                   return (
-                    <div
-                      key={move.id}
-                      className="p-3.5 bg-zinc-950/40 border border-zinc-900 rounded-2xl text-xs flex justify-between items-start gap-2 shadow-sm"
-                    >
+                    <div key={move.id} className="p-3.5 bg-zinc-950/40 border border-zinc-900 rounded-2xl text-xs flex justify-between items-start gap-2 shadow-sm">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <div
-                            className="w-2.5 h-2.5 rounded-full border border-white/10"
-                            style={{ backgroundColor: p?.color }}
-                          />
+                          <div className="w-2.5 h-2.5 rounded-full border border-white/10" style={{ backgroundColor: p?.color }} />
                           <span className="font-extrabold text-zinc-200 text-xs">{p?.name || move.playerId}</span>
                         </div>
                         <span className="text-[9.5px] text-zinc-500 block font-mono">
                           Rd {move.round} • Slot {move.turnIndex + 1} • ({move.origin.x},{move.origin.y},{move.origin.z})
                         </span>
                       </div>
-
                       <div>
                         {move.valid ? (
-                          <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">
-                            Valid
-                          </span>
+                          <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">Valid</span>
                         ) : (
-                          <span
-                            className="px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md font-black text-[9px] uppercase tracking-wider cursor-help"
-                            title={move.invalidReason}
-                          >
-                            Skip
-                          </span>
+                          <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md font-black text-[9px] uppercase tracking-wider" title={move.invalidReason}>Skip</span>
                         )}
                       </div>
                     </div>
@@ -232,37 +313,23 @@ export default function DealerPage() {
           </div>
         </div>
 
-        {/* Right Column: 3D Grid Board & Live Top-View Coverage Matrix */}
+        {/* Right Column */}
         <div className="lg:col-span-8 space-y-6">
-          
-          {/* 3D Isometric View */}
           <div className="bg-zinc-900/20 p-8 rounded-[36px] border border-zinc-900 backdrop-blur-xl flex flex-col items-center shadow-2xl relative overflow-hidden">
-            <div 
-              className="absolute inset-0 bg-radial from-transparent via-transparent to-transparent opacity-30 pointer-events-none"
-              style={{
-                background: `radial-gradient(circle at center, rgba(59, 130, 246, 0.05) 0%, transparent 70%)`
-              }}
-            />
             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-6 relative z-10">
               3D Session Board
             </h3>
             <div className="relative z-10 w-full max-w-lg">
-              <BoardIsometric
-                board={board}
-                players={players}
-              />
+              <BoardIsometric board={board} players={players} />
             </div>
           </div>
 
-          {/* Territory & Top View Matrix */}
           <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-[36px] backdrop-blur-xl shadow-2xl">
             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-2 w-full">
-              <Eye className="h-4.5 w-4.5 text-indigo-400" />
-              Live Top-View Territory Coverage
+              <Eye className="h-4.5 w-4.5 text-indigo-400" /> Live Top-View Territory Coverage
             </h3>
 
             <div className="flex flex-col md:flex-row items-center gap-10 justify-around">
-              {/* Visual 5x5 Flat Matrix */}
               <div className="grid grid-cols-5 gap-2 w-64 h-64 bg-zinc-950 p-4 rounded-[24px] border border-zinc-900 shadow-inner">
                 {topView.map((col, x) =>
                   col.map((cell, y) => {
@@ -271,10 +338,7 @@ export default function DealerPage() {
                       <div
                         key={`${x}-${y}`}
                         className="rounded-xl aspect-square border border-white/5 flex items-center justify-center font-black text-xs text-white shadow-sm"
-                        style={{
-                          backgroundColor: pColor || '#141416',
-                          boxShadow: cell.playerId ? 'inset 0 0 8px rgba(255,255,255,0.25)' : 'none',
-                        }}
+                        style={{ backgroundColor: pColor || '#141416', boxShadow: cell.playerId ? 'inset 0 0 8px rgba(255,255,255,0.25)' : 'none' }}
                       >
                         {cell.playerId ? cell.playerId : ''}
                       </div>
@@ -283,12 +347,8 @@ export default function DealerPage() {
                 )}
               </div>
 
-              {/* Progress bars representing percent grid coverage */}
               <div className="space-y-4 w-full max-w-xs text-left">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">
-                  Grid Percentage
-                </span>
-                
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Grid Percentage</span>
                 <div className="space-y-3.5">
                   {players.map((p) => {
                     const cellCount = topView.flat().filter((cell) => cell.playerId === p.id).length;
@@ -300,18 +360,10 @@ export default function DealerPage() {
                             <div className="w-2.5 h-2.5 rounded-full shadow-sm border border-white/10" style={{ backgroundColor: p.color }} />
                             <span className="font-extrabold text-zinc-300 text-xs">{p.name}</span>
                           </div>
-                          <span className="font-mono text-zinc-400 font-bold">
-                            {cellCount} cells ({percent}%)
-                          </span>
+                          <span className="font-mono text-zinc-400 font-bold">{cellCount} cells ({percent}%)</span>
                         </div>
                         <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden border border-zinc-900">
-                          <div
-                            className="h-full rounded-full transition-all duration-500 shadow-inner"
-                            style={{
-                              backgroundColor: p.color,
-                              width: `${percent}%`,
-                            }}
-                          />
+                          <div className="h-full rounded-full transition-all duration-500 shadow-inner" style={{ backgroundColor: p.color, width: `${percent}%` }} />
                         </div>
                       </div>
                     );

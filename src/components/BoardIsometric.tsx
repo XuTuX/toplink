@@ -12,6 +12,7 @@ interface BoardIsometricProps {
   hoveredCell?: { x: number; y: number } | null;
   onCellHover?: (x: number, y: number | null) => void;
   previewColor?: string;
+  predictedCells?: { x: number; y: number; z: number; color: string }[];
 }
 
 export default function BoardIsometric({
@@ -23,6 +24,7 @@ export default function BoardIsometric({
   hoveredCell = null,
   onCellHover,
   previewColor,
+  predictedCells = [],
 }: BoardIsometricProps) {
   // Local hover state in case parent doesn't provide it
   const [localHoveredCell, setLocalHoveredCell] = useState<{ x: number; y: number } | null>(null);
@@ -64,6 +66,7 @@ export default function BoardIsometric({
     z: number;
     color: string;
     isPreview?: boolean;
+    isPrediction?: boolean;
   }[] = [];
 
   // 1. Add board cells
@@ -82,8 +85,19 @@ export default function BoardIsometric({
       x: c.x,
       y: c.y,
       z: c.z,
-      color: previewColor || '#a1a1aa',
+      color: previewColor || (isPreviewValid ? '#a1a1aa' : '#f43f5e'),
       isPreview: true,
+    });
+  });
+
+  // 3. Add predicted cells
+  predictedCells.forEach((c) => {
+    cubesToRender.push({
+      x: c.x,
+      y: c.y,
+      z: c.z,
+      color: c.color,
+      isPrediction: true,
     });
   });
 
@@ -248,12 +262,12 @@ export default function BoardIsometric({
                   style={{
                     transform: `translate(${xPos}px, ${yPos}px)`,
                     transition: 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s ease',
-                    opacity: cube.isPreview ? 0.75 : 1,
+                    opacity: cube.isPreview ? 0.75 : cube.isPrediction ? 0.4 : 1,
                   }}
-                  className={cube.isPreview ? 'pointer-events-none animate-pulse' : 'cursor-pointer pointer-events-auto'}
-                  onClick={cube.isPreview ? undefined : () => onCellClick?.(cube.x, cube.y)}
-                  onMouseEnter={cube.isPreview ? undefined : () => handleMouseEnter(cube.x, cube.y)}
-                  onMouseLeave={cube.isPreview ? undefined : () => handleMouseLeave(cube.x)}
+                  className={cube.isPreview ? 'pointer-events-none animate-pulse' : cube.isPrediction ? 'pointer-events-none' : 'cursor-pointer pointer-events-auto'}
+                  onClick={cube.isPreview || cube.isPrediction ? undefined : () => onCellClick?.(cube.x, cube.y)}
+                  onMouseEnter={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseEnter(cube.x, cube.y)}
+                  onMouseLeave={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseLeave(cube.x)}
                 >
                   {/* TOP FACE */}
                   <path

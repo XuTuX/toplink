@@ -166,7 +166,8 @@ export function validatePlacement(
   game: GameState,
   playerId: PlayerId,
   origin: { x: number; y: number; z?: number },
-  rotationIndex: number
+  rotationIndex: number,
+  options: { allowOverlap?: boolean; allowFloating?: boolean } = {}
 ): {
   valid: boolean;
   cells: Coord[];
@@ -197,17 +198,20 @@ export function validatePlacement(
     }
   }
 
-  // Rule 2: No overlaps with existing cubes
-  for (const cell of cells) {
-    if (hasCell(game.board, cell)) {
-      return { valid: false, cells, reason: `Cell (${cell.x}, ${cell.y}, ${cell.z}) overlaps with an existing cube`, landingZ };
+  // Predictions can opt out of physical constraints, but authoritative moves cannot.
+  if (!options.allowOverlap) {
+    for (const cell of cells) {
+      if (hasCell(game.board, cell)) {
+        return { valid: false, cells, reason: `Cell (${cell.x}, ${cell.y}, ${cell.z}) overlaps with an existing cube`, landingZ };
+      }
     }
   }
 
-  // Rule 3: Support verification (every cube must be supported)
-  for (const cell of cells) {
-    if (!isCellSupported(cell, game.board, cells)) {
-      return { valid: false, cells, reason: `Cell (${cell.x}, ${cell.y}, ${cell.z}) is floating (no support directly below)`, landingZ };
+  if (!options.allowFloating) {
+    for (const cell of cells) {
+      if (!isCellSupported(cell, game.board, cells)) {
+        return { valid: false, cells, reason: `Cell (${cell.x}, ${cell.y}, ${cell.z}) is floating (no support directly below)`, landingZ };
+      }
     }
   }
 
@@ -323,8 +327,8 @@ export function applyMove(
   let newStatus: GameState['status'] = game.status;
   let finalResult = game.result;
 
-  // If round ends (all 4 players acted)
-  if (newTurnIndex >= 4) {
+  // If round ends (all active seats acted)
+  if (newTurnIndex >= game.baseTurnOrder.length) {
     if (endPending) {
       newStatus = 'ended';
       // Compute final results

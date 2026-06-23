@@ -1,0 +1,425 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useGameStore } from '@/lib/store/gameStore';
+import { getCurrentPlayer, validatePlacement, PlacedCell, GameState, PlayerId } from '@/lib/rules';
+import { useSocket } from '@/components/SocketProvider';
+import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers } from 'lucide-react';
+import BoardIsometric from '@/components/BoardIsometric';
+
+export default function PlayerPage() {
+  const { socket, isConnected, error } = useSocket();
+  const [roomCode, setRoomCode] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [joined, setJoined] = useState(false);
+  const [playerId, setPlayerId] = useState<PlayerId | null>(null);
+
+  // General placement state
+  const [originX, setOriginX] = useState(2);
+  const [originY, setOriginY] = useState(2);
+  const [rotationIndex, setRotationIndex] = useState(0);
+
+  // Modes: 'action' (my actual turn) | 'predict' (guessing opponent placements)
+  const [mode, setMode] = useState<'action' | 'predict'>('action');
+
+  // Prediction state
+  const [predictions, setPredictions] = useState<PlacedCell[]>([]);
+  const [predictPlayerId, setPredictPlayerId] = useState<PlayerId | null>(null);
+  const [predictShape, setPredictShape] = useState<'L-Block' | '1x1'>('1x1');
+  const [manualZ, setManualZ] = useState<number | null>(null);
+
+  const { status, players, round, board } = useGameStore();
+
+  const handleJoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (socket && roomCode.trim() && nickname.trim()) {
+      socket.emit('player_join', roomCode.toUpperCase(), nickname.trim());
+    }
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const onPlayerJoined = (joinedPlayerId: PlayerId) => {
+      setPlayerId(joinedPlayerId);
+      setJoined(true);
+    };
+
+    socket.on('player_joined', onPlayerJoined);
+    return () => {
+      socket.off('player_joined', onPlayerJoined);
+    };
+  }, [socket]);
+
+  const activePlayerId = players.length > 0 ? getCurrentPlayer(useGameStore.getState()) : null;
+  const isMyTurn = playerId === activePlayerId;
+  const me = players.find(p => p.id === playerId);
+  const opponents = players.filter((player) => player.id !== playerId);
+  const activePredictionPlayerId = predictPlayerId ?? opponents[0]?.id ?? null;
+
+  // The actual board the player sees: Only their blocks, plus any predictions
+  const myBlocks = board.filter(b => b.playerId === playerId);
+
+  // Create a synthetic game state to run validations against
+  const syntheticGameState: GameState = {
+    ...useGameStore.getState(),
+    board: [...myBlocks, ...predictions]
+  };
+
+  const currentRotationIndex = (mode === 'predict' && predictShape === '1x1') ? -1 : rotationIndex;
+
+  // Custom validation to support 1x1 block
+  const computeValidation = () => {
+    if (!playerId) return { valid: false, cells: [], reason: '', landingZ: 0 };
+
+    if (mode === 'predict' && predictShape === '1x1') {
+      if (!activePredictionPlayerId) return { valid: false, cells: [], reason: '', landingZ: 0 };
+      const z = manualZ !== null
+        ? manualZ
+        : validatePlacement(syntheticGameState, activePredictionPlayerId, { x: originX, y: originY }, 0).landingZ ?? 0;
+      return {
+        valid: true,
+        cells: [{ x: originX, y: originY, z }],
+        landingZ: z
+      };
+    }
+
+    const targetPlayerId = mode === 'action' ? playerId : activePredictionPlayerId;
+    if (!targetPlayerId) return { valid: false, cells: [], reason: '', landingZ: 0 };
+
+    return validatePlacement(
+      syntheticGameState,
+      targetPlayerId,
+      { x: originX, y: originY, z: manualZ !== null && mode === 'predict' ? manualZ : undefined },
+      currentRotationIndex === -1 ? 0 : currentRotationIndex,
+      mode === 'predict' ? { allowOverlap: true, allowFloating: true } : undefined
+    );
+  };
+
+  const validation = computeValidation();
+
+  const handleCellClick = (x: number, y: number) => {
+    if (mode === 'action' && !isMyTurn) return;
+
+    setOriginX(x);
+    setOriginY(y);
+
+    if (mode === 'predict' && predictShape === '1x1') return; // No auto-rotation for 1x1
+
+    // Auto-select first valid rotation if current is invalid
+    const targetPlayerId = mode === 'action' ? playerId : activePredictionPlayerId;
+    if (targetPlayerId) {
+      const predictionOptions = mode === 'predict' ? { allowOverlap: true, allowFloating: true } : undefined;
+      const currentVal = validatePlacement(syntheticGameState, targetPlayerId, { x, y, z: manualZ !== null && mode === 'predict' ? manualZ : undefined }, rotationIndex, predictionOptions);
+      if (!currentVal.valid) {
+        for (let r = 0; r < 12; r++) {
+          const rot = (rotationIndex + r) % 12;
+          const val = validatePlacement(syntheticGameState, targetPlayerId, { x, y }, rot, predictionOptions);
+          if (val.valid) {
+            setRotationIndex(rot);
+            break;
+          }
+        }
+      }
+    }
+  };
+
+  const handleRotate = () => {
+    if (mode === 'predict' && predictShape === '1x1') return;
+    const targetPlayerId = mode === 'action' ? playerId : activePredictionPlayerId;
+    if (targetPlayerId) {
+      const predictionOptions = mode === 'predict' ? { allowOverlap: true, allowFloating: true } : undefined;
+      let found = false;
+      for (let i = 1; i <= 12; i++) {
+        const nextRot = (rotationIndex + i) % 12;
+        const val = validatePlacement(syntheticGameState, targetPlayerId, { x: originX, y: originY, z: manualZ !== null && mode === 'predict' ? manualZ : undefined }, nextRot, predictionOptions);
+        if (val.valid) {
+          setRotationIndex(nextRot);
+          found = true;
+          break;
+        }
+      }
+
+      // If no valid rotation exists, just do standard rotation so they can at least see it
+      if (!found) {
+        setRotationIndex((prev) => (prev + 1) % 12);
+      }
+    } else {
+      setRotationIndex((prev) => (prev + 1) % 12);
+    }
+  };
+
+  const handleConfirmMove = () => {
+    if (mode === 'predict') {
+      if (validation.valid && activePredictionPlayerId) {
+        // Place prediction block locally
+        const predictionId = `prediction_${predictions.length}`;
+        const newPredictionCells: PlacedCell[] = validation.cells.map(c => ({
+          x: c.x,
+          y: c.y,
+          z: c.z,
+          playerId: activePredictionPlayerId,
+          blockId: predictionId,
+          turnId: predictionId,
+        }));
+        setPredictions((current) => [...current, ...newPredictionCells]);
+      }
+    } else {
+      // Action mode: emit to server
+      if (socket && roomCode && isMyTurn && playerId && validation.valid) {
+        socket.emit('player_move', roomCode, playerId, { x: originX, y: originY, z: validation.landingZ }, rotationIndex);
+        // Reset mode just in case
+        setMode('action');
+      }
+    }
+  };
+
+  const handleClearPredictions = () => {
+    setPredictions([]);
+  };
+
+  if (!joined) {
+    return (
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-zinc-950 p-6">
+        <form onSubmit={handleJoin} className="w-full max-w-sm space-y-6">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-black text-white">Join Game</h1>
+            <p className="text-zinc-500 mt-2">Enter the room code from the host</p>
+          </div>
+          {!isConnected && (
+            <div className="p-4 bg-amber-500/10 text-amber-500 rounded-xl text-center text-sm font-bold border border-amber-500/20">
+              Connecting to server...
+            </div>
+          )}
+          {error && (
+            <div className="p-4 bg-rose-500/10 text-rose-500 rounded-xl text-center text-sm font-bold border border-rose-500/20">
+              {error}
+            </div>
+          )}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Room Code</label>
+              <input
+                type="text"
+                value={roomCode}
+                onChange={e => setRoomCode(e.target.value.toUpperCase())}
+                placeholder="ABCD"
+                maxLength={4}
+                required
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-center text-2xl font-black text-white uppercase tracking-widest focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">Nickname</label>
+              <input
+                type="text"
+                value={nickname}
+                onChange={e => setNickname(e.target.value)}
+                placeholder="Your Name"
+                required
+                maxLength={12}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-center text-xl font-bold text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={!isConnected || !roomCode || !nickname}
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-lg font-black transition-all active:scale-95"
+          >
+            Join Room
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (status === 'setup') {
+    return (
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-zinc-950 p-6 text-center space-y-6">
+        <div className="w-20 h-20 rounded-full flex items-center justify-center bg-zinc-900 border-2 border-zinc-800 mx-auto" style={{ borderColor: me?.color }}>
+          <User className="w-8 h-8 text-white" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-black text-white">Welcome, {me?.name}!</h2>
+          <p className="text-zinc-500 mt-2">Waiting for the host to start the game...</p>
+        </div>
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mt-8"></div>
+      </div>
+    );
+  }
+
+  const activeColor = mode === 'action' ? me?.color : players.find(p => p.id === activePredictionPlayerId)?.color;
+
+  return (
+    <div className="flex min-h-[100dvh] flex-col bg-zinc-950 text-zinc-100 font-sans">
+      <header className="px-6 py-4 bg-zinc-950/90 backdrop-blur border-b border-zinc-900 flex justify-between items-center sticky top-0 z-20">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2" style={{ borderColor: me?.color, backgroundColor: me?.color + '20' }} />
+          <div>
+            <div className="text-sm font-black text-white">{me?.name}</div>
+            <div className="text-[10px] text-zinc-500 uppercase font-bold">Player {me?.id}</div>
+          </div>
+        </div>
+        <div className="text-right flex items-center gap-2">
+          {mode === 'predict' && (
+            <span className="text-[10px] bg-purple-500/20 text-purple-400 px-2 py-1 rounded font-bold uppercase tracking-wider">
+              Prediction Mode
+            </span>
+          )}
+          <div className="text-[10px] text-zinc-500 uppercase font-bold">Round {round}</div>
+        </div>
+      </header>
+
+      <main className="flex-1 flex flex-col items-center p-4">
+
+        {/* Mode Toggle & Turn Status */}
+        <div className="w-full max-w-sm mb-4 space-y-3">
+          <div className="flex bg-zinc-900 p-1 rounded-xl">
+            <button
+              onClick={() => setMode('action')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                mode === 'action' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Activity className="w-4 h-4 inline-block mr-1.5" /> Action
+            </button>
+            <button
+              onClick={() => setMode('predict')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                mode === 'predict' ? 'bg-purple-600 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Eye className="w-4 h-4 inline-block mr-1.5" /> Predict
+            </button>
+          </div>
+
+          {mode === 'action' ? (
+            <div className={`rounded-2xl p-4 transition-all border ${
+              isMyTurn ? 'bg-indigo-500/10 border-indigo-500 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+            }`}>
+              <div className="flex items-center justify-center gap-2 font-black text-sm uppercase tracking-widest">
+                {isMyTurn ? (
+                  <><Activity className="w-5 h-5 animate-pulse" /> IT&apos;S YOUR TURN</>
+                ) : (
+                  <><User className="w-5 h-5" /> WAITING FOR {players.find(p => p.id === activePlayerId)?.name}</>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-purple-900/20 border border-purple-500/30 rounded-2xl p-4 text-center space-y-3">
+              <div className="text-xs text-purple-400 font-bold">Select opponent to predict:</div>
+              <div className="flex justify-center gap-3">
+                {opponents.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPredictPlayerId(p.id)}
+                    className={`w-8 h-8 rounded-full border-2 transition-all ${activePredictionPlayerId === p.id ? 'scale-125' : 'scale-100 opacity-50 hover:opacity-100'}`}
+                    style={{ borderColor: p.color, backgroundColor: p.color + '40' }}
+                  />
+                ))}
+              </div>
+              <div className="flex justify-center gap-2 pt-2 border-t border-purple-500/20">
+                <button
+                  onClick={() => setPredictShape('1x1')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${predictShape === '1x1' ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-zinc-500 hover:text-white'}`}
+                >
+                  1x1 Cube
+                </button>
+                <button
+                  onClick={() => setPredictShape('L-Block')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${predictShape === 'L-Block' ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-zinc-500 hover:text-white'}`}
+                >
+                  L-Block
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="w-full max-w-sm mb-4 p-3 bg-rose-500/10 text-rose-500 border border-rose-500/20 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2">
+            <AlertCircle className="w-4 h-4" /> {error}
+          </div>
+        )}
+
+        {/* 3D Board Area */}
+        <div className="w-full max-w-sm bg-zinc-900/40 rounded-[32px] p-4 border border-zinc-800 flex flex-col items-center shadow-2xl mb-6 relative overflow-hidden">
+          {mode === 'predict' && (
+            <div className="absolute inset-0 bg-purple-500/5 pointer-events-none" />
+          )}
+
+          <BoardIsometric
+            board={myBlocks} // Only show own blocks
+            players={players}
+            predictedCells={predictions.map(c => ({
+              x: c.x, y: c.y, z: c.z, color: players.find(p => p.id === c.playerId)?.color || '#fff'
+            }))}
+            previewCells={(mode === 'action' ? isMyTurn : true) ? validation.cells : []}
+            isPreviewValid={validation.valid}
+            previewColor={activeColor}
+            onCellClick={handleCellClick}
+          />
+        </div>
+
+        {/* Controls */}
+        {(mode === 'action' ? isMyTurn : true) && (
+          <div className="w-full max-w-sm space-y-3">
+            {mode === 'predict' && (
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex justify-between items-center text-sm">
+                <span className="text-zinc-400 font-bold text-xs uppercase tracking-wider">Z Height: {manualZ !== null ? manualZ : validation.landingZ ?? 0}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-white font-bold hover:bg-zinc-700">-</button>
+                  <button onClick={() => setManualZ((manualZ !== null ? manualZ : validation.landingZ ?? 0) + 1)} className="w-8 h-8 bg-zinc-800 rounded-lg text-white font-bold hover:bg-zinc-700">+</button>
+                  {manualZ !== null && (
+                    <button onClick={() => setManualZ(null)} className="px-3 h-8 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-purple-600/40">Auto</button>
+                  )}
+                </div>
+              </div>
+            )}
+            {mode === 'action' && (
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex justify-between items-center text-sm">
+                <span className="text-zinc-400 font-bold">Z: {validation.landingZ ?? 0}</span>
+                {!validation.valid && (
+                  <span className="text-xs text-rose-500 font-bold">{validation.reason}</span>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleRotate}
+                disabled={mode === 'predict' && predictShape === '1x1'}
+                className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2"
+              >
+                <RotateCw className="w-5 h-5" /> Rotate
+              </button>
+              <button
+                onClick={handleConfirmMove}
+                disabled={!validation.valid}
+                className={`flex-[2] py-4 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2 ${
+                  mode === 'predict' ? 'bg-purple-600 hover:bg-purple-500' : 'bg-indigo-600 hover:bg-indigo-500'
+                }`}
+              >
+                {mode === 'predict' ? (
+                  <><Layers className="w-5 h-5" /> Predict</>
+                ) : (
+                  <><Send className="w-5 h-5" /> Confirm</>
+                )}
+              </button>
+            </div>
+            {mode === 'predict' && predictions.length > 0 && (
+              <button
+                onClick={handleClearPredictions}
+                className="w-full py-3 mt-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 border border-zinc-800"
+              >
+                <RefreshCcw className="w-4 h-4" /> Clear Predictions
+              </button>
+            )}
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}

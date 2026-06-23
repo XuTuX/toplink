@@ -6,23 +6,22 @@ import { PlayerId } from '@/lib/rules';
 import { useRouter } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import { Trophy, RefreshCcw, Award, Sparkles, LayoutGrid, ScrollText } from 'lucide-react';
+import { useSocket } from '@/components/SocketProvider';
 
 export default function ResultPage() {
   const router = useRouter();
+  const { socket } = useSocket();
   const {
+    id,
     status,
     players,
     result,
     moves,
-    resetGame,
   } = useGameStore();
 
-  const [mounted, setMounted] = useState(false);
   const [highlightedPlayer, setHighlightedPlayer] = useState<PlayerId | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-
     if (status === 'ended' && result?.winnerIds && result.winnerIds.length > 0) {
       const duration = 2.5 * 1000;
       const animationEnd = Date.now() + duration;
@@ -32,7 +31,7 @@ export default function ResultPage() {
         return Math.random() * (max - min) + min;
       };
 
-      const interval: any = setInterval(() => {
+      const interval: ReturnType<typeof setInterval> = setInterval(() => {
         const timeLeft = animationEnd - Date.now();
 
         if (timeLeft <= 0) {
@@ -48,14 +47,6 @@ export default function ResultPage() {
     }
   }, [status, result]);
 
-  if (!mounted) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-white font-sans">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-t-indigo-500 border-zinc-800"></div>
-      </div>
-    );
-  }
-
   if (status !== 'ended' || !result) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-100 p-6 relative overflow-hidden">
@@ -67,9 +58,9 @@ export default function ResultPage() {
           </p>
           <button
             onClick={() => router.push('/')}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs tracking-tight transition-all cursor-pointer shadow-lg shadow-indigo-500/20"
+            className="w-full py-4 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl text-sm font-extrabold transition-all mt-4"
           >
-            Session Setup
+            Return to Lobby
           </button>
         </div>
       </div>
@@ -77,7 +68,7 @@ export default function ResultPage() {
   }
 
   const handleRestart = () => {
-    resetGame();
+    socket?.emit('host_reset_game', id);
     router.push('/');
   };
 
@@ -271,7 +262,7 @@ export default function ResultPage() {
               </p>
             ) : (
               <p className="text-[10px] text-zinc-500 mt-4 text-center font-medium">
-                Hover over player's name above to see their territory.
+                Hover over player&apos;s name above to see their territory.
               </p>
             )}
           </div>
