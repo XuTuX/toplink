@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, validatePlacement, PlacedCell, GameState, PlayerId } from '@/lib/rules';
+import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId } from '@/lib/rules';
 import { useSocket } from '@/components/SocketProvider';
 import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers } from 'lucide-react';
 import BoardIsometric from '@/components/BoardIsometric';
@@ -76,7 +76,7 @@ export default function PlayerPage() {
       if (!activePredictionPlayerId) return { valid: false, cells: [], reason: '', landingZ: 0 };
       const z = manualZ !== null
         ? manualZ
-        : validatePlacement(syntheticGameState, activePredictionPlayerId, { x: originX, y: originY }, 0).landingZ ?? 0;
+        : getColumnHeight(syntheticGameState.board, originX, originY);
       return {
         valid: true,
         cells: [{ x: originX, y: originY, z }],
