@@ -46,7 +46,7 @@ describe('gameManager round flow', () => {
     const revealedP1View = getPlayerGameState(getRoom(roomCode)!.gameState, 'P1');
     expect(revealedP1View.board.every((cell) => cell.playerId === 'P1')).toBe(true);
     expect(revealedP1View.moves.find((move) => move.playerId === 'P2')?.cells).toEqual([]);
-    expect(revealedP1View.roundTopView).toHaveLength(5);
+    expect(revealedP1View.roundTopView).toHaveLength(6);
     expect(revealedP1View.roundTopView?.flat().every((cell) => cell.z === null)).toBe(true);
 
     expect(startNextRound(roomCode, hostSocketId)).toBe(true);

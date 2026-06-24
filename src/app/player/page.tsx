@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations } from '@/lib/rules';
+import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations, calculateLandingZ } from '@/lib/rules';
 import { useSocket } from '@/components/SocketProvider';
 import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ScrollText } from 'lucide-react';
 import BoardIsometric from '@/components/BoardIsometric';
@@ -52,14 +52,40 @@ export default function PlayerPage() {
   const [announcedRound, setAnnouncedRound] = useState<number | null>(null);
   const roundOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Effect event state for visual feedback
+  const [effectEvent, setEffectEvent] = useState<{ id: string; type: 'stopped' | 'disappear'; cells: Coord[]; color: string } | null>(null);
+
   const { status, players, round, board, moves, roundRevealed, roundTopView } = useGameStore();
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (socket && roomCode.trim() && nickname.trim() && password.trim()) {
+      sessionStorage.setItem('playerSession', JSON.stringify({
+        roomCode: roomCode.toUpperCase(),
+        nickname: nickname.trim(),
+        password: password.trim()
+      }));
       socket.emit('player_join', roomCode.toUpperCase(), nickname.trim(), password.trim());
     }
   };
+
+  // Check for existing session on mount
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const sessionStr = sessionStorage.getItem('playerSession');
+    if (sessionStr && !joined) {
+      try {
+        const session = JSON.parse(sessionStr);
+        setRoomCode(session.roomCode);
+        setNickname(session.nickname);
+        setPassword(session.password);
+        socket.emit('player_join', session.roomCode, session.nickname, session.password);
+      } catch (e) {
+        sessionStorage.removeItem('playerSession');
+      }
+    }
+  }, [socket, isConnected, joined]);
 
   useEffect(() => {
     if (!socket) return;
@@ -96,7 +122,7 @@ export default function PlayerPage() {
     };
   }, [socket]);
 
-  // Watch for server-side move failures
+  // Watch for server-side move failures and hidden block hits
   useEffect(() => {
     if (moves.length === 0 || !playerId) return;
     const latestMove = moves[moves.length - 1];
@@ -104,13 +130,35 @@ export default function PlayerPage() {
     if (latestMove.id !== lastProcessedMoveIdRef.current) {
       lastProcessedMoveIdRef.current = latestMove.id;
       
-      // If my move just failed on the server (e.g. hit an opponent's hidden block)
-      if (latestMove.playerId === playerId && !latestMove.valid) {
-        const timer = setTimeout(triggerShake, 0);
-        return () => clearTimeout(timer);
+      if (latestMove.playerId === playerId) {
+        if (!latestMove.valid) {
+          // Move failed (e.g. hit an opponent's hidden block and became unstable)
+          setEffectEvent({
+            id: latestMove.id,
+            type: 'disappear',
+            cells: latestMove.cells,
+            color: players.find(p => p.id === playerId)?.color || '#fff'
+          });
+          const timer = setTimeout(triggerShake, 0);
+          return () => clearTimeout(timer);
+        } else {
+          // Move succeeded. Check if it hit a hidden block (Z is higher than expected locally)
+          const myBlocks = board.filter(b => b.playerId === playerId);
+          // calculateLandingZ simulates dropping without hidden blocks
+          const localLandingZ = calculateLandingZ(myBlocks, latestMove.origin.x, latestMove.origin.y, latestMove.rotationIndex);
+          if (latestMove.origin.z > (localLandingZ ?? 0)) {
+            // It stopped higher than our local board expected!
+            setEffectEvent({
+              id: latestMove.id,
+              type: 'stopped',
+              cells: latestMove.cells,
+              color: players.find(p => p.id === playerId)?.color || '#fff'
+            });
+          }
+        }
       }
     }
-  }, [moves, playerId]);
+  }, [moves, playerId, board, players]);
 
 
 
@@ -140,9 +188,9 @@ export default function PlayerPage() {
 
   if (currentRotationIndex === -1) {
     if (clampedX < 0) clampedX = 0;
-    if (clampedX >= 5) clampedX = 4;
+    if (clampedX >= 6) clampedX = 5;
     if (clampedY < 0) clampedY = 0;
-    if (clampedY >= 5) clampedY = 4;
+    if (clampedY >= 6) clampedY = 5;
   } else {
     const rotations = generateBlockRotations();
     if (currentRotationIndex >= 0 && currentRotationIndex < rotations.length) {
@@ -155,9 +203,9 @@ export default function PlayerPage() {
         if (c.y > maxY) maxY = c.y;
       }
       if (clampedX + minX < 0) clampedX = -minX;
-      if (clampedX + maxX >= 5) clampedX = 4 - maxX;
+      if (clampedX + maxX >= 6) clampedX = 5 - maxX;
       if (clampedY + minY < 0) clampedY = -minY;
-      if (clampedY + maxY >= 5) clampedY = 4 - maxY;
+      if (clampedY + maxY >= 6) clampedY = 5 - maxY;
     }
   }
 
@@ -482,28 +530,51 @@ export default function PlayerPage() {
         )}
 
         {/* Hide the 3D board while the host presents the round result. */}
-        {!(status === 'round_ended' && roundRevealed) && (
-          <div className={`w-full max-w-sm bg-zinc-900/40 rounded-[32px] p-4 border flex flex-col items-center shadow-2xl mb-6 relative overflow-hidden transition-colors ${
-            isShaking ? 'border-rose-500 bg-rose-500/5 animate-shake' : 'border-zinc-800'
-          }`}>
-            {mode === 'predict' && (
-              <div className="absolute inset-0 bg-purple-500/5 pointer-events-none" />
-            )}
+        {!(status === 'round_ended' && roundRevealed) && (() => {
+          let currentPreviewCells: Coord[] = [];
+          let currentPredictedCells = predictions.map(c => ({
+            x: c.x, y: c.y, z: c.z, color: players.find(p => p.id === c.playerId)?.color || '#fff'
+          }));
 
-            <BoardIsometric
-              board={visibleBoard}
-              players={players}
-              predictedCells={predictions.map(c => ({
-                x: c.x, y: c.y, z: c.z, color: players.find(p => p.id === c.playerId)?.color || '#fff'
-              }))}
-              previewCells={selectedHistoryMoveId ? historyCells : (mode === 'action' ? isMyTurn : mode === 'predict' ? true : false) ? validation.cells : []}
-              isPreviewValid={selectedHistoryMoveId ? historyMove?.valid : validation.valid}
-              previewColor={selectedHistoryMoveId && canInspectHistoryMove ? (historyMove?.valid ? (players.find(p => p.id === historyMove.playerId)?.color || '#22c55e') : '#ef4444') : (!validation.valid ? '#ef4444' : activeColor)}
-              onCellClick={handleCellClick}
-              isHistoryPreview={!!selectedHistoryMoveId}
-            />
-          </div>
-        )}
+          if (selectedHistoryMoveId) {
+            currentPreviewCells = historyCells;
+          } else if (mode === 'action' && isMyTurn) {
+            // In action mode, show the preview hovering at Z=7
+            currentPreviewCells = validation.cells.map(c => ({
+              ...c,
+              z: c.z - (validation.landingZ ?? 0) + 7
+            }));
+            // Show the landing spot as a ghost block
+            const ghostColor = validation.valid ? (activeColor || '#ffffff') : '#ef4444';
+            currentPredictedCells = validation.cells.map(c => ({
+              x: c.x, y: c.y, z: c.z, color: ghostColor
+            }));
+          } else if (mode === 'predict') {
+            currentPreviewCells = validation.cells;
+          }
+
+          return (
+            <div className={`w-full max-w-xl bg-zinc-900/40 rounded-[32px] p-4 border flex flex-col items-center shadow-2xl mb-6 relative overflow-hidden transition-colors ${
+              isShaking ? 'border-rose-500 bg-rose-500/5 animate-shake' : 'border-zinc-800'
+            }`}>
+              {mode === 'predict' && (
+                <div className="absolute inset-0 bg-purple-500/5 pointer-events-none" />
+              )}
+
+              <BoardIsometric
+                board={visibleBoard}
+                players={players}
+                predictedCells={currentPredictedCells}
+                previewCells={currentPreviewCells}
+                isPreviewValid={selectedHistoryMoveId ? historyMove?.valid : validation.valid}
+                previewColor={selectedHistoryMoveId && canInspectHistoryMove ? (historyMove?.valid ? (players.find(p => p.id === historyMove.playerId)?.color || '#22c55e') : '#ef4444') : (!validation.valid ? '#ef4444' : activeColor)}
+                onCellClick={handleCellClick}
+                isHistoryPreview={!!selectedHistoryMoveId}
+                effectEvent={effectEvent}
+              />
+            </div>
+          );
+        })()}
 
         {/* 2D Top View Share Grid for Round End */}
         {status === 'round_ended' && roundRevealed && (
@@ -511,7 +582,7 @@ export default function PlayerPage() {
             <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
               <Eye className="w-4 h-4" /> 라운드 탑 뷰 영토 점유율
             </h3>
-            <div className="grid grid-cols-5 gap-2 w-48 h-48 mx-auto bg-zinc-950 p-3 rounded-2xl border border-zinc-900 shadow-inner">
+            <div className="grid grid-cols-6 gap-2 w-64 h-64 mx-auto bg-zinc-950 p-3 rounded-2xl border border-zinc-900 shadow-inner">
               {sharedTopView.map((col, x) =>
                 col.map((cell, y) => {
                   const pColor = cell.playerId ? players.find((p) => p.id === cell.playerId)?.color : null;
@@ -531,7 +602,7 @@ export default function PlayerPage() {
             <div className="space-y-2 pt-2 text-left border-t border-zinc-800">
               {players.map((p) => {
                 const cellCount = sharedTopView.flat().filter((cell) => cell.playerId === p.id).length;
-                const percent = Math.round((cellCount / 25) * 100);
+                const percent = Math.round((cellCount / 36) * 100);
                 return (
                   <div key={p.id} className="flex justify-between items-center text-[10px]">
                     <div className="flex items-center gap-1.5">

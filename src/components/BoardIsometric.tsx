@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlacedCell, Coord, Player } from '@/lib/rules';
 import { RotateCw, RotateCcw } from 'lucide-react';
 
@@ -16,6 +16,7 @@ interface BoardIsometricProps {
   predictedCells?: { x: number; y: number; z: number; color: string }[];
   highlightedCube?: { x: number; y: number; z: number } | null;
   isHistoryPreview?: boolean;
+  effectEvent?: { id: string; type: 'stopped' | 'disappear'; cells: Coord[]; color: string } | null;
 }
 
 const CUBE_LOCAL_VERTICES = [
@@ -49,6 +50,7 @@ export default function BoardIsometric({
   predictedCells = [],
   highlightedCube = null,
   isHistoryPreview = false,
+  effectEvent = null,
 }: BoardIsometricProps) {
   const [localHoveredCell, setLocalHoveredCell] = useState<{ x: number; y: number } | null>(null);
 
@@ -59,6 +61,22 @@ export default function BoardIsometric({
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [dragStartX, setDragStartX] = useState(0);
   const [hasDragged, setHasDragged] = useState(false);
+
+  const [newCubeKeys, setNewCubeKeys] = useState<Set<string>>(new Set());
+  const renderedCubeKeys = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentKeys = new Set(board.map(c => `${c.x}-${c.y}-${c.z}-placed-${getPlayerColor(c.playerId)}`));
+    const newlyAdded = new Set([...currentKeys].filter(x => !renderedCubeKeys.current.has(x)));
+    
+    if (newlyAdded.size > 0 && renderedCubeKeys.current.size > 0) {
+      setNewCubeKeys(newlyAdded);
+      setTimeout(() => {
+        setNewCubeKeys(new Set());
+      }, 600);
+    }
+    renderedCubeKeys.current = currentKeys;
+  }, [board, players]);
 
   // Smooth rotation animation loop
   useEffect(() => {
@@ -112,11 +130,11 @@ export default function BoardIsometric({
     }
   };
 
-  const L = 30; // Side length
+  const L = 28; // Side length
   const halfW = L * Math.sqrt(3) / 2;
   const halfH = L / 2;
-  const centerX = 192;
-  const centerY = 210;
+  const centerX = 280;
+  const centerY = 420;
 
   const currentHoveredCell = hoveredCell !== null ? hoveredCell : localHoveredCell;
 
@@ -218,16 +236,12 @@ export default function BoardIsometric({
 
   const gridFacePaths = topFaceDef ? [
     { d: buildPath(topFaceDef.indices), getStyle: getGridTopFaceStyle },
-    ...sideFacesDef.map((face, index) => ({
-      d: buildPath(face.indices),
-      getStyle: index === 0 ? getGridLeftFaceStyle : getGridRightFaceStyle
-    }))
   ] : [];
 
   // 5. Project world coordinates
   const projectCoord = (x: number, y: number, z: number) => {
-    const dx = x - 2;
-    const dy = y - 2;
+    const dx = x - 2.5;
+    const dy = y - 2.5;
     const rx = dx * cosT - dy * sinT;
     const ry = dx * sinT + dy * cosT;
     const cx = centerX + (rx - ry) * halfW;
@@ -261,12 +275,34 @@ export default function BoardIsometric({
     cubesToRender.push({ x: c.x, y: c.y, z: c.z, color: c.color, isPrediction: true, ...proj });
   });
 
+  let stoppedEffectTarget: { cx: number, cy: number } | null = null;
+  if (effectEvent) {
+    if (effectEvent.type === 'disappear') {
+      effectEvent.cells.forEach(c => {
+        const proj = projectCoord(c.x, c.y, c.z);
+        // use isPreview=true so it doesn't have drop-in animation, we will add disappear class
+        cubesToRender.push({ x: c.x, y: c.y, z: c.z, color: effectEvent.color, isPreview: true, isDisappear: true, ...proj } as any);
+      });
+    } else if (effectEvent.type === 'stopped') {
+      const avgX = effectEvent.cells.reduce((s, c) => s + c.x, 0) / effectEvent.cells.length;
+      const avgY = effectEvent.cells.reduce((s, c) => s + c.y, 0) / effectEvent.cells.length;
+      const maxZ = Math.max(...effectEvent.cells.map(c => c.z));
+      stoppedEffectTarget = projectCoord(avgX, avgY, maxZ);
+    }
+  }
+
   cubesToRender.sort((a, b) => {
-    const depthA = a.rx + a.ry + a.z;
-    const depthB = b.rx + b.ry + b.z;
-    if (Math.abs(depthA - depthB) > 0.01) return depthA - depthB;
-    if (a.z !== b.z) return b.z - a.z;
-    if (a.rx !== b.rx) return a.rx - b.rx;
+    // 1. Sort by horizontal plane depth (back to front)
+    const planeA = a.rx + a.ry;
+    const planeB = b.rx + b.ry;
+    if (Math.abs(planeA - planeB) > 0.01) {
+      return planeA - planeB;
+    }
+    // 2. Sort by height (bottom to top)
+    if (a.z !== b.z) {
+      return a.z - b.z;
+    }
+    // 3. Sort preview blocks to be drawn on top if at same position
     if (a.isPreview !== b.isPreview) {
       return a.isPreview ? 1 : -1;
     }
@@ -274,18 +310,58 @@ export default function BoardIsometric({
   });
 
   const gridCellsData: { x: number; y: number; cx: number; cy: number; rx: number; ry: number }[] = [];
-  for (let y = 0; y < 5; y++) {
-    for (let x = 0; x < 5; x++) {
-      gridCellsData.push({ x, y, ...projectCoord(x, y, -1) });
+  for (let y = 0; y < 6; y++) {
+    for (let x = 0; x < 6; x++) {
+      gridCellsData.push({ x, y, ...projectCoord(x, y, 0) });
     }
   }
   gridCellsData.sort((a, b) => (a.rx + a.ry) - (b.rx + b.ry));
 
   return (
     <div className="flex flex-col items-center select-none overflow-hidden py-4 w-full">
+      <style>{`
+        @keyframes dropInCube {
+          0% {
+            transform: translateY(-250px);
+            opacity: 0.5;
+          }
+          60% {
+            transform: translateY(15px);
+            opacity: 1;
+          }
+          80% {
+            transform: translateY(-5px);
+          }
+          100% {
+            transform: translateY(0);
+          }
+        }
+        .animate-drop-in-cube {
+          animation: dropInCube 0.5s ease-out both;
+        }
+        @keyframes disappearCube {
+          0% { transform: translateY(0); opacity: 0.8; }
+          40% { transform: translateY(-10px) scale(1.05); opacity: 1; }
+          100% { transform: translateY(10px) scale(0); opacity: 0; }
+        }
+        .animate-disappear-cube {
+          animation: disappearCube 0.8s ease-in forwards;
+          transform-origin: center;
+          transform-box: fill-box;
+        }
+        @keyframes popupText {
+          0% { transform: translateY(0) scale(0.5); opacity: 0; }
+          15% { transform: translateY(-15px) scale(1.2); opacity: 1; }
+          80% { transform: translateY(-25px) scale(1); opacity: 1; }
+          100% { transform: translateY(-35px) scale(0.8); opacity: 0; }
+        }
+        .animate-popup-text {
+          animation: popupText 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+      `}</style>
       <div 
         className="relative flex items-center justify-center max-w-full select-none cursor-grab active:cursor-grabbing border border-zinc-800/40 rounded-[28px] overflow-hidden"
-        style={{ width: '384px', aspectRatio: '384/390' }}
+        style={{ width: '560px', aspectRatio: '560/650' }}
         onMouseDown={(e) => handleDragStart(e.clientX)}
         onMouseMove={(e) => handleDragMove(e.clientX)}
         onMouseUp={handleDragEnd}
@@ -321,7 +397,7 @@ export default function BoardIsometric({
           </button>
         </div>
 
-        <svg viewBox="0 0 384 390" width="100%" height="100%" className="overflow-visible select-none drop-shadow-sm">
+        <svg viewBox="0 0 560 650" width="100%" height="100%" className="select-none drop-shadow-sm">
           <g>
             {gridCellsData.map((cell) => {
               const isHovered = currentHoveredCell?.x === cell.x && currentHoveredCell?.y === cell.y;
@@ -339,7 +415,7 @@ export default function BoardIsometric({
                   ))}
                   <text
                     x={0}
-                    y={-L + 3}
+                    y={4}
                     textAnchor="middle"
                     className="text-[11px] font-mono fill-zinc-500 pointer-events-none select-none font-semibold tracking-wider"
                   >
@@ -352,8 +428,11 @@ export default function BoardIsometric({
           <g>
             {cubesToRender.map((cube) => {
               const isHovered = currentHoveredCell?.x === cube.x && currentHoveredCell?.y === cube.y;
-              const typeStr = cube.isPreview ? 'preview' : cube.isPrediction ? 'predict' : 'placed';
-              const key = `${cube.x}-${cube.y}-${cube.z}-${typeStr}-${cube.color}`;
+              const isDisappear = (cube as any).isDisappear;
+              const typeStr = isDisappear ? 'disappear' : cube.isPreview ? 'preview' : cube.isPrediction ? 'predict' : 'placed';
+              const key = isDisappear ? `${cube.x}-${cube.y}-${cube.z}-disappear-${effectEvent?.id}` : `${cube.x}-${cube.y}-${cube.z}-${typeStr}-${cube.color}`;
+
+              const isNew = newCubeKeys.has(key);
 
               let opacity = 1.0;
               if (cube.isPreview) {
@@ -372,24 +451,33 @@ export default function BoardIsometric({
                     opacity,
                     transition: 'opacity 0.3s ease, transform 0s'
                   }}
-                  className={cube.isPreview ? 'pointer-events-none' : cube.isPrediction ? 'pointer-events-none' : 'cursor-pointer pointer-events-auto'}
-                  onClick={cube.isPreview || cube.isPrediction ? undefined : () => onCellClick?.(cube.x, cube.y)}
-                  onMouseEnter={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseEnter(cube.x, cube.y)}
-                  onMouseLeave={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseLeave(cube.x)}
+                  className={cube.isPreview || isDisappear ? 'pointer-events-none' : cube.isPrediction ? 'pointer-events-none' : 'cursor-pointer pointer-events-auto'}
+                  onClick={cube.isPreview || cube.isPrediction || isDisappear ? undefined : () => onCellClick?.(cube.x, cube.y)}
+                  onMouseEnter={cube.isPreview || cube.isPrediction || isDisappear ? undefined : () => handleMouseEnter(cube.x, cube.y)}
+                  onMouseLeave={cube.isPreview || cube.isPrediction || isDisappear ? undefined : () => handleMouseLeave(cube.x)}
                 >
-                {/* 2. Cube Faces */}
-                {cubeFacePaths.map((face, faceIdx) => (
-                  <path
-                    key={faceIdx}
-                    d={face.d}
-                    {...face.getStyle(cube.color, cube.isPreview, isHovered, cube.isHighlighted, isHistoryPreview)}
-                    className="transition-all duration-300 pointer-events-none"
-                  />
-                ))}
+                  <g className={isDisappear ? 'animate-disappear-cube' : cube.isPreview || cube.isPrediction ? '' : (isNew ? 'animate-drop-in-cube' : '')}>
+                    {/* 2. Cube Faces */}
+                    {cubeFacePaths.map((face, faceIdx) => (
+                      <path
+                        key={faceIdx}
+                        d={face.d}
+                        {...face.getStyle(cube.color, cube.isPreview, isHovered, cube.isHighlighted, isHistoryPreview)}
+                        className="transition-all duration-300 pointer-events-none"
+                      />
+                    ))}
+                  </g>
                 </g>
               );
             })}
           </g>
+          {stoppedEffectTarget && (
+            <g style={{ transform: `translate(${stoppedEffectTarget.cx}px, ${stoppedEffectTarget.cy - 10}px)` }} key={`stopped-${effectEvent?.id}`}>
+              <text className="animate-popup-text fill-rose-400 font-black text-sm pointer-events-none select-none text-center" textAnchor="middle" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>
+                💥 충돌!
+              </text>
+            </g>
+          )}
         </svg>
       </div>
 

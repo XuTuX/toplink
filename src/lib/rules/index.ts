@@ -10,8 +10,8 @@ export interface Player {
 }
 
 export interface Coord {
-  x: number; // 0~4
-  y: number; // 0~4
+  x: number; // 0~5
+  y: number; // 0~5
   z: number; // >= 0
 }
 
@@ -91,9 +91,9 @@ export function applyRotation(origin: Coord, rotation: BlockShape): Coord[] {
   }));
 }
 
-// 3. Check if coord is inside the 5x5 board and has z >= 0
+// 3. Check if coord is inside the 6x6 board and has z >= 0
 export function isInsideBoard(cell: Coord): boolean {
-  return cell.x >= 0 && cell.x < 5 && cell.y >= 0 && cell.y < 5 && cell.z >= 0;
+  return cell.x >= 0 && cell.x < 6 && cell.y >= 0 && cell.y < 6 && cell.z >= 0;
 }
 
 // 4. Check if cell exists at coord
@@ -140,7 +140,7 @@ export function calculateLandingZ(
   for (const c of rotation) {
     const rx = x + c.x;
     const ry = y + c.y;
-    if (rx < 0 || rx >= 5 || ry < 0 || ry >= 5) {
+    if (rx < 0 || rx >= 6 || ry < 0 || ry >= 6) {
       return null;
     }
   }
@@ -258,7 +258,7 @@ export function getMaxHeight(board: PlacedCell[]): number {
 
 // 11. Should trigger end (height >= 5)
 export function shouldTriggerEnd(board: PlacedCell[]): boolean {
-  return getMaxHeight(board) >= 5;
+  return getMaxHeight(board) >= 6;
 }
 
 // 12. Apply Move
@@ -382,9 +382,9 @@ export function startNextRound(game: GameState): GameState {
 export function computeTopView(board: PlacedCell[]): TopViewCell[][] {
   const topView: TopViewCell[][] = [];
 
-  for (let x = 0; x < 5; x++) {
+  for (let x = 0; x < 6; x++) {
     topView[x] = [];
-    for (let y = 0; y < 5; y++) {
+    for (let y = 0; y < 6; y++) {
       // Find the cell with the highest z
       const columnCells = board.filter((c) => c.x === x && c.y === y);
       if (columnCells.length > 0) {
@@ -417,7 +417,7 @@ export function findLargestConnectedArea(
   size: number;
   cells: { x: number; y: number }[];
 } {
-  const visited = Array.from({ length: 5 }, () => Array(5).fill(false));
+  const visited = Array.from({ length: 6 }, () => Array(6).fill(false));
   let largestComponent: { x: number; y: number }[] = [];
 
   const directions = [
@@ -427,8 +427,8 @@ export function findLargestConnectedArea(
     { dx: 0, dy: -1 },
   ];
 
-  for (let x = 0; x < 5; x++) {
-    for (let y = 0; y < 5; y++) {
+  for (let x = 0; x < 6; x++) {
+    for (let y = 0; y < 6; y++) {
       if (topView[x][y].playerId === playerId && !visited[x][y]) {
         // Start BFS
         const queue: { x: number; y: number }[] = [{ x, y }];
@@ -444,7 +444,7 @@ export function findLargestConnectedArea(
             const nx = curr.x + dir.dx;
             const ny = curr.y + dir.dy;
 
-            if (nx >= 0 && nx < 5 && ny >= 0 && ny < 5) {
+            if (nx >= 0 && nx < 6 && ny >= 0 && ny < 6) {
               if (topView[nx][ny].playerId === playerId && !visited[nx][ny]) {
                 visited[nx][ny] = true;
                 queue.push({ x: nx, y: ny });
@@ -477,8 +477,8 @@ function calculateResultsInternal(board: PlacedCell[], players: Player[]): GameR
 
     // Count cells in top view
     let topViewCellCount = 0;
-    for (let x = 0; x < 5; x++) {
-      for (let y = 0; y < 5; y++) {
+    for (let x = 0; x < 6; x++) {
+      for (let y = 0; y < 6; y++) {
         if (topView[x][y].playerId === player.id) {
           topViewCellCount++;
         }

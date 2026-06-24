@@ -193,7 +193,7 @@ export default function ResultPage() {
               최종 영토 탑 뷰 그리드
             </h3>
 
-            <div className="grid grid-cols-5 gap-2.5 w-64 h-64 bg-zinc-950 p-4 rounded-[24px] border border-zinc-900 shadow-inner">
+            <div className="grid grid-cols-6 gap-2.5 w-80 h-80 bg-zinc-950 p-4 rounded-[24px] border border-zinc-900 shadow-inner">
               {result.topView.map((col, x) =>
                 col.map((cell, y) => {
                   const pColor = cell.playerId ? players.find((p) => p.id === cell.playerId)?.color : null;

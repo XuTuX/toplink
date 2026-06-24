@@ -70,7 +70,7 @@ export default function Board2D({
         </div>
       )}
 
-      {/* 5x5 Grid for Selected Layer */}
+      {/* 6x6 Grid for Selected Layer */}
       <div className="flex flex-col items-center">
         <div className="bg-white p-4 rounded-2xl border border-zinc-850 max-w-full overflow-auto shadow-sm">
           <div className="text-center mb-2">
@@ -79,11 +79,11 @@ export default function Board2D({
             </span>
           </div>
 
-          <div className="grid grid-cols-5 gap-2 w-72 h-72 sm:w-80 sm:h-80 select-none">
-            {Array.from({ length: 5 }).map((_, yInv) => {
-              // Y points from top-to-bottom on screen, coordinate is 0..4
+          <div className="grid grid-cols-6 gap-2 w-[22rem] h-[22rem] sm:w-96 sm:h-96 select-none">
+            {Array.from({ length: 6 }).map((_, yInv) => {
+              // Y points from top-to-bottom on screen, coordinate is 0..5
               const y = yInv;
-              return Array.from({ length: 5 }).map((_, x) => {
+              return Array.from({ length: 6 }).map((_, x) => {
                 const cell = getPlacedCell(x, y, activeLayer);
                 const preview = getPreviewCell(x, y, activeLayer);
                 const player = cell ? players.find((p) => p.id === cell.playerId) : null;

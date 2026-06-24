@@ -47,7 +47,7 @@ describe('Top Link Rules Engine', () => {
 
     it('should invalidate placement outside the board', () => {
       const game = createEmptyGame();
-      const res = validatePlacement(game, 'P1', { x: 4, y: 4, z: 0 }, 4); // goes to x=5
+      const res = validatePlacement(game, 'P1', { x: 5, y: 5, z: 0 }, 4); // goes to x=6
       expect(res.valid).toBe(false);
       expect(res.reason).toContain('out of board boundaries');
     });
@@ -166,8 +166,8 @@ describe('Top Link Rules Engine', () => {
   describe('Largest Connection Scoring', () => {
     it('should calculate connections orthogonally and ignore diagonals', () => {
       // Create a mock top view
-      const topView = Array.from({ length: 5 }, (_, x) =>
-        Array.from({ length: 5 }, (_, y) => ({
+      const topView = Array.from({ length: 6 }, (_, x) =>
+        Array.from({ length: 6 }, (_, y) => ({
           x,
           y,
           playerId: null as string | null,
@@ -233,7 +233,7 @@ describe('Top Link Rules Engine', () => {
       expect(getCurrentPlayer(game)).toBe('P1');
 
       // Make an invalid move (out of boundaries)
-      game = applyMove(game, 'P1', { x: 4, y: 4, z: 0 }, 4);
+      game = applyMove(game, 'P1', { x: 5, y: 5, z: 0 }, 4);
       expect(game.moves[0].valid).toBe(false);
       expect(game.board.length).toBe(0); // block not placed
       expect(game.turnIndexInRound).toBe(1); // turn advanced
