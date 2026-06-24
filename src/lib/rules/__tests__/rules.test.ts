@@ -9,7 +9,9 @@ import {
   getCurrentTurnOrder,
   getCurrentPlayer,
   Player,
-  startNextRound
+  startNextRound,
+  BOARD_HEIGHT,
+  BOARD_SIZE,
 } from '../index';
 
 const INITIAL_PLAYERS: Player[] = [
@@ -48,6 +50,13 @@ describe('Top Link Rules Engine', () => {
     it('should invalidate placement outside the board', () => {
       const game = createEmptyGame();
       const res = validatePlacement(game, 'P1', { x: 5, y: 5, z: 0 }, 4); // goes to x=6
+      expect(res.valid).toBe(false);
+      expect(res.reason).toContain('out of board boundaries');
+    });
+
+    it('should invalidate placement above the 6-cell board ceiling', () => {
+      const game = createEmptyGame();
+      const res = validatePlacement(game, 'P1', { x: 0, y: 0, z: BOARD_HEIGHT - 1 }, 4);
       expect(res.valid).toBe(false);
       expect(res.reason).toContain('out of board boundaries');
     });
@@ -145,6 +154,8 @@ describe('Top Link Rules Engine', () => {
       game = applyMove(game, 'P2', { x: 0, y: 0, z: 1 }, 4);
 
       const topView = computeTopView(game.board);
+      expect(topView).toHaveLength(BOARD_SIZE);
+      expect(topView.every((column) => column.length === BOARD_SIZE)).toBe(true);
       // At (0,0), highest cell is z=2 (P2)
       expect(topView[0][0].playerId).toBe('P2');
       expect(topView[0][0].z).toBe(2);
@@ -240,7 +251,7 @@ describe('Top Link Rules Engine', () => {
       expect(getCurrentPlayer(game)).toBe('P2'); // next player's turn
     });
 
-    it('should trigger end pending when height >= 5 and end at the end of the round', () => {
+    it('should trigger end pending when height reaches 6 and end at the end of the round', () => {
       let game = createEmptyGame();
       // Setup the board so one column is at z=4 (height 5)
       // We will place blocks on top of each other.
@@ -279,7 +290,7 @@ describe('Top Link Rules Engine', () => {
       expect(game.endPending).toBe(false);
       game = applyMove(game, 'P1', { x: 0, y: 0, z: 4 }, 4); // P1 (z=4, z=5)
       
-      expect(game.endPending).toBe(true); // height >= 5 reached
+      expect(game.endPending).toBe(true); // height 6 reached
       expect(game.status).toBe('end_pending'); // game is in pending state
 
       // Other players must still get their turn in this round (Round 5: P2, P3, P4)

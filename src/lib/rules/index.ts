@@ -1,5 +1,9 @@
 import { BLOCK_ROTATIONS, BlockShape } from './rotations';
 
+export const BOARD_SIZE = 6;
+export const BOARD_HEIGHT = 6;
+export const BOARD_CELL_COUNT = BOARD_SIZE * BOARD_SIZE;
+
 export type PlayerId = 'P1' | 'P2' | 'P3' | 'P4';
 
 export interface Player {
@@ -91,9 +95,11 @@ export function applyRotation(origin: Coord, rotation: BlockShape): Coord[] {
   }));
 }
 
-// 3. Check if coord is inside the 6x6 board and has z >= 0
+// 3. Check if coord is inside the 6x6x6 board
 export function isInsideBoard(cell: Coord): boolean {
-  return cell.x >= 0 && cell.x < 6 && cell.y >= 0 && cell.y < 6 && cell.z >= 0;
+  return cell.x >= 0 && cell.x < BOARD_SIZE
+    && cell.y >= 0 && cell.y < BOARD_SIZE
+    && cell.z >= 0 && cell.z < BOARD_HEIGHT;
 }
 
 // 4. Check if cell exists at coord
@@ -140,14 +146,14 @@ export function calculateLandingZ(
   for (const c of rotation) {
     const rx = x + c.x;
     const ry = y + c.y;
-    if (rx < 0 || rx >= 6 || ry < 0 || ry >= 6) {
+    if (rx < 0 || rx >= BOARD_SIZE || ry < 0 || ry >= BOARD_SIZE) {
       return null;
     }
   }
 
   // 2. Start from a high z and decrement until we hit a collision (overlap or below floor)
-  let z = 20;
-  while (z >= -5) {
+  let z = BOARD_HEIGHT;
+  while (z >= -BOARD_HEIGHT) {
     let hasCollision = false;
     for (const c of rotation) {
       const cz = z + c.z;
@@ -256,9 +262,9 @@ export function getMaxHeight(board: PlacedCell[]): number {
   return Math.max(...board.map((c) => c.z)) + 1;
 }
 
-// 11. Should trigger end (height >= 5)
+// 11. Trigger the final round when the tower reaches the board ceiling.
 export function shouldTriggerEnd(board: PlacedCell[]): boolean {
-  return getMaxHeight(board) >= 6;
+  return getMaxHeight(board) >= BOARD_HEIGHT;
 }
 
 // 12. Apply Move
@@ -317,7 +323,7 @@ export function applyMove(
     }));
     updatedBoard = [...updatedBoard, ...newPlacedCells];
 
-    // 4. Check if height >= 5 condition is triggered
+    // 4. Check whether the board ceiling has been reached.
     const heightTriggered = shouldTriggerEnd(updatedBoard);
     if (heightTriggered && !endPending) {
       endPending = true;
@@ -382,9 +388,9 @@ export function startNextRound(game: GameState): GameState {
 export function computeTopView(board: PlacedCell[]): TopViewCell[][] {
   const topView: TopViewCell[][] = [];
 
-  for (let x = 0; x < 6; x++) {
+  for (let x = 0; x < BOARD_SIZE; x++) {
     topView[x] = [];
-    for (let y = 0; y < 6; y++) {
+    for (let y = 0; y < BOARD_SIZE; y++) {
       // Find the cell with the highest z
       const columnCells = board.filter((c) => c.x === x && c.y === y);
       if (columnCells.length > 0) {
@@ -417,7 +423,7 @@ export function findLargestConnectedArea(
   size: number;
   cells: { x: number; y: number }[];
 } {
-  const visited = Array.from({ length: 6 }, () => Array(6).fill(false));
+  const visited = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(false));
   let largestComponent: { x: number; y: number }[] = [];
 
   const directions = [
@@ -427,8 +433,8 @@ export function findLargestConnectedArea(
     { dx: 0, dy: -1 },
   ];
 
-  for (let x = 0; x < 6; x++) {
-    for (let y = 0; y < 6; y++) {
+  for (let x = 0; x < BOARD_SIZE; x++) {
+    for (let y = 0; y < BOARD_SIZE; y++) {
       if (topView[x][y].playerId === playerId && !visited[x][y]) {
         // Start BFS
         const queue: { x: number; y: number }[] = [{ x, y }];
@@ -444,7 +450,7 @@ export function findLargestConnectedArea(
             const nx = curr.x + dir.dx;
             const ny = curr.y + dir.dy;
 
-            if (nx >= 0 && nx < 6 && ny >= 0 && ny < 6) {
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE) {
               if (topView[nx][ny].playerId === playerId && !visited[nx][ny]) {
                 visited[nx][ny] = true;
                 queue.push({ x: nx, y: ny });
@@ -477,8 +483,8 @@ function calculateResultsInternal(board: PlacedCell[], players: Player[]): GameR
 
     // Count cells in top view
     let topViewCellCount = 0;
-    for (let x = 0; x < 6; x++) {
-      for (let y = 0; y < 6; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      for (let y = 0; y < BOARD_SIZE; y++) {
         if (topView[x][y].playerId === player.id) {
           topViewCellCount++;
         }

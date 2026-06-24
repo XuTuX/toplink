@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { PlacedCell, Coord, Player } from '@/lib/rules';
+import { BOARD_HEIGHT, BOARD_SIZE, PlacedCell, Coord, Player } from '@/lib/rules';
 
 interface Board2DProps {
   board: PlacedCell[];
@@ -22,7 +22,7 @@ export default function Board2D({
   setActiveLayer,
   onCellClick,
 }: Board2DProps) {
-  const maxZ = Math.max(5, ...board.map((c) => c.z));
+  const maxZ = Math.max(BOARD_HEIGHT - 1, ...board.map((c) => c.z));
   const layers = Array.from({ length: maxZ + 1 }, (_, i) => i);
 
   // Helper to find placed cell at coordinate
@@ -80,10 +80,10 @@ export default function Board2D({
           </div>
 
           <div className="grid grid-cols-6 gap-2 w-[22rem] h-[22rem] sm:w-96 sm:h-96 select-none">
-            {Array.from({ length: 6 }).map((_, yInv) => {
+            {Array.from({ length: BOARD_SIZE }).map((_, yInv) => {
               // Y points from top-to-bottom on screen, coordinate is 0..5
               const y = yInv;
-              return Array.from({ length: 6 }).map((_, x) => {
+              return Array.from({ length: BOARD_SIZE }).map((_, x) => {
                 const cell = getPlacedCell(x, y, activeLayer);
                 const preview = getPreviewCell(x, y, activeLayer);
                 const player = cell ? players.find((p) => p.id === cell.playerId) : null;

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "TOP LINK",
-  description: "5×5 보드에서 즐기는 3D 블록 전략 게임",
+  description: "6×6×6 보드에서 즐기는 3D 블록 전략 게임",
 };
 
 export default function RootLayout({

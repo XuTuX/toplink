@@ -19,7 +19,7 @@ export default function SetupPage() {
             TOP LINK
           </h1>
           <p className="text-zinc-400 mt-4 text-sm leading-relaxed font-medium">
-            L-블록을 배치하고, 상대를 견제하며, 5×5 보드에서 더 많은 영역을 장악하세요.
+            L-블록을 배치하고, 상대를 견제하며, 6×6×6 보드에서 더 많은 영역을 장악하세요.
           </p>
         </div>
 

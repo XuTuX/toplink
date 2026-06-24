@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { PlacedCell, Coord, Player } from '@/lib/rules';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { BOARD_SIZE, PlacedCell, Coord, Player } from '@/lib/rules';
 import { RotateCw, RotateCcw } from 'lucide-react';
 
 interface BoardIsometricProps {
@@ -53,6 +53,10 @@ export default function BoardIsometric({
   effectEvent = null,
 }: BoardIsometricProps) {
   const [localHoveredCell, setLocalHoveredCell] = useState<{ x: number; y: number } | null>(null);
+  const getPlayerColor = useCallback(
+    (playerId: string) => players.find((player) => player.id === playerId)?.color || '#52525b',
+    [players]
+  );
 
   // View rotation angle in radians
   const [theta, setTheta] = useState(0);
@@ -76,7 +80,7 @@ export default function BoardIsometric({
       }, 600);
     }
     renderedCubeKeys.current = currentKeys;
-  }, [board, players]);
+  }, [board, getPlayerColor]);
 
   // Smooth rotation animation loop
   useEffect(() => {
@@ -130,11 +134,17 @@ export default function BoardIsometric({
     }
   };
 
-  const L = 28; // Side length
+  // Keep the 6x6 grid large enough to use on mobile without creating a tall,
+  // mostly-empty canvas around the elevated placement preview.
+  const L = 32;
   const halfW = L * Math.sqrt(3) / 2;
   const halfH = L / 2;
-  const centerX = 280;
-  const centerY = 420;
+  const viewBoxWidth = 420;
+  const viewBoxTop = -32;
+  const viewBoxBottom = 430;
+  const viewBoxHeight = viewBoxBottom - viewBoxTop;
+  const centerX = viewBoxWidth / 2;
+  const centerY = 330;
 
   const currentHoveredCell = hoveredCell !== null ? hoveredCell : localHoveredCell;
 
@@ -147,8 +157,6 @@ export default function BoardIsometric({
     if (onCellHover) onCellHover(x, null);
     setLocalHoveredCell(null);
   };
-
-  const getPlayerColor = (playerId: string) => players.find((p) => p.id === playerId)?.color || '#52525b';
 
   // --- 3D Projection Engine ---
   const sinT = Math.sin(theta);
@@ -210,19 +218,6 @@ export default function BoardIsometric({
     strokeWidth: isHovered ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
-  const getGridLeftFaceStyle = (isHovered?: boolean) => ({
-    fill: isHovered ? '#dfe5f2' : '#e5e7eb',
-    stroke: isHovered ? '#6366f1' : '#d1d5db',
-    strokeWidth: isHovered ? 1.5 : 0.8,
-    strokeLinejoin: 'round' as const,
-  });
-  const getGridRightFaceStyle = (isHovered?: boolean) => ({
-    fill: isHovered ? '#e8ebf4' : '#eef0f3',
-    stroke: isHovered ? '#6366f1' : '#d1d5db',
-    strokeWidth: isHovered ? 1.5 : 0.8,
-    strokeLinejoin: 'round' as const,
-  });
-
   // 4. Generate SVG path strings
   const buildPath = (indices: number[]) => `M ` + indices.map(idx => `${localProjectedVertices[idx].sx} ${localProjectedVertices[idx].sy}`).join(' L ') + ' Z';
 
@@ -240,8 +235,9 @@ export default function BoardIsometric({
 
   // 5. Project world coordinates
   const projectCoord = (x: number, y: number, z: number) => {
-    const dx = x - 2.5;
-    const dy = y - 2.5;
+    const boardCenter = (BOARD_SIZE - 1) / 2;
+    const dx = x - boardCenter;
+    const dy = y - boardCenter;
     const rx = dx * cosT - dy * sinT;
     const ry = dx * sinT + dy * cosT;
     const cx = centerX + (rx - ry) * halfW;
@@ -257,6 +253,7 @@ export default function BoardIsometric({
     isPreview?: boolean;
     isPrediction?: boolean;
     isHighlighted?: boolean;
+    isDisappear?: boolean;
   }[] = [];
 
   board.forEach((c) => {
@@ -281,7 +278,7 @@ export default function BoardIsometric({
       effectEvent.cells.forEach(c => {
         const proj = projectCoord(c.x, c.y, c.z);
         // use isPreview=true so it doesn't have drop-in animation, we will add disappear class
-        cubesToRender.push({ x: c.x, y: c.y, z: c.z, color: effectEvent.color, isPreview: true, isDisappear: true, ...proj } as any);
+        cubesToRender.push({ x: c.x, y: c.y, z: c.z, color: effectEvent.color, isPreview: true, isDisappear: true, ...proj });
       });
     } else if (effectEvent.type === 'stopped') {
       const avgX = effectEvent.cells.reduce((s, c) => s + c.x, 0) / effectEvent.cells.length;
@@ -310,9 +307,11 @@ export default function BoardIsometric({
   });
 
   const gridCellsData: { x: number; y: number; cx: number; cy: number; rx: number; ry: number }[] = [];
-  for (let y = 0; y < 6; y++) {
-    for (let x = 0; x < 6; x++) {
-      gridCellsData.push({ x, y, ...projectCoord(x, y, 0) });
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      // The grid reuses a cube's top face (local z=1), so its origin must sit
+      // one level below the board for that face to represent the z=0 floor.
+      gridCellsData.push({ x, y, ...projectCoord(x, y, -1) });
     }
   }
   gridCellsData.sort((a, b) => (a.rx + a.ry) - (b.rx + b.ry));
@@ -361,7 +360,7 @@ export default function BoardIsometric({
       `}</style>
       <div 
         className="relative flex items-center justify-center max-w-full select-none cursor-grab active:cursor-grabbing border border-zinc-800/40 rounded-[28px] overflow-hidden"
-        style={{ width: '560px', aspectRatio: '560/650' }}
+        style={{ width: 'min(100%, 560px)', aspectRatio: `${viewBoxWidth} / ${viewBoxHeight}` }}
         onMouseDown={(e) => handleDragStart(e.clientX)}
         onMouseMove={(e) => handleDragMove(e.clientX)}
         onMouseUp={handleDragEnd}
@@ -397,7 +396,7 @@ export default function BoardIsometric({
           </button>
         </div>
 
-        <svg viewBox="0 0 560 650" width="100%" height="100%" className="select-none drop-shadow-sm">
+        <svg viewBox={`0 ${viewBoxTop} ${viewBoxWidth} ${viewBoxHeight}`} width="100%" height="100%" className="select-none drop-shadow-sm">
           <g>
             {gridCellsData.map((cell) => {
               const isHovered = currentHoveredCell?.x === cell.x && currentHoveredCell?.y === cell.y;
@@ -415,7 +414,7 @@ export default function BoardIsometric({
                   ))}
                   <text
                     x={0}
-                    y={4}
+                    y={-L + 4}
                     textAnchor="middle"
                     className="text-[11px] font-mono fill-zinc-500 pointer-events-none select-none font-semibold tracking-wider"
                   >
@@ -428,7 +427,7 @@ export default function BoardIsometric({
           <g>
             {cubesToRender.map((cube) => {
               const isHovered = currentHoveredCell?.x === cube.x && currentHoveredCell?.y === cube.y;
-              const isDisappear = (cube as any).isDisappear;
+              const isDisappear = cube.isDisappear;
               const typeStr = isDisappear ? 'disappear' : cube.isPreview ? 'preview' : cube.isPrediction ? 'predict' : 'placed';
               const key = isDisappear ? `${cube.x}-${cube.y}-${cube.z}-disappear-${effectEvent?.id}` : `${cube.x}-${cube.y}-${cube.z}-${typeStr}-${cube.color}`;
 

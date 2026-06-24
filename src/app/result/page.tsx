@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { PlayerId } from '@/lib/rules';
+import { BOARD_SIZE, PlayerId } from '@/lib/rules';
 import { useRouter } from 'next/navigation';
 import { Trophy, RefreshCcw, Award, LayoutGrid, ScrollText } from 'lucide-react';
 import { useSocket } from '@/components/SocketProvider';
@@ -194,8 +194,9 @@ export default function ResultPage() {
             </h3>
 
             <div className="grid grid-cols-6 gap-2.5 w-80 h-80 bg-zinc-950 p-4 rounded-[24px] border border-zinc-900 shadow-inner">
-              {result.topView.map((col, x) =>
-                col.map((cell, y) => {
+              {Array.from({ length: BOARD_SIZE }, (_, y) =>
+                Array.from({ length: BOARD_SIZE }, (_, x) => {
+                  const cell = result.topView[x][y];
                   const pColor = cell.playerId ? players.find((p) => p.id === cell.playerId)?.color : null;
                   const highlighted = isCellHighlighted(x, y, cell.playerId);
 

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, computeTopView, getMaxHeight, PlayerId } from '@/lib/rules';
+import { BOARD_CELL_COUNT, BOARD_HEIGHT, BOARD_SIZE, getCurrentPlayer, computeTopView, getMaxHeight, PlayerId } from '@/lib/rules';
 import BoardIsometric from '@/components/BoardIsometric';
 import { Shield, RotateCcw, AlertOctagon, ListTodo, Eye, Activity, Play, Users, XCircle } from 'lucide-react';
 import { useSocket } from '@/components/SocketProvider';
@@ -260,7 +260,7 @@ export default function DealerRoomPage() {
               </div>
               <div className="bg-zinc-950/40 p-3 rounded-2xl border border-zinc-900 shadow-inner">
                 <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">최고 높이</span>
-                <span className="text-xs font-black text-zinc-100 font-mono">{maxZ} / 6</span>
+                <span className="text-xs font-black text-zinc-100 font-mono">{maxZ} / {BOARD_HEIGHT}</span>
               </div>
               <div className="bg-zinc-950/40 p-3 rounded-2xl border border-zinc-900 shadow-inner">
                 <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">총 이동 횟수</span>
@@ -441,8 +441,9 @@ export default function DealerRoomPage() {
 
             <div className="flex flex-col md:flex-row items-center gap-10 justify-around">
               <div className="grid grid-cols-6 gap-2.5 w-80 h-80 bg-zinc-950 p-4 rounded-[24px] border border-zinc-900 shadow-inner">
-                {topView.map((col, x) =>
-                  col.map((cell, y) => {
+                {Array.from({ length: BOARD_SIZE }, (_, y) =>
+                  Array.from({ length: BOARD_SIZE }, (_, x) => {
+                    const cell = topView[x][y];
                     const pColor = cell.playerId ? players.find((p) => p.id === cell.playerId)?.color : null;
                     return (
                       <div
@@ -462,7 +463,7 @@ export default function DealerRoomPage() {
                 <div className="space-y-3.5">
                   {players.map((p) => {
                     const cellCount = topView.flat().filter((cell) => cell.playerId === p.id).length;
-                    const percent = Math.round((cellCount / 36) * 100);
+                    const percent = Math.round((cellCount / BOARD_CELL_COUNT) * 100);
                     return (
                       <div key={p.id} className="space-y-1.5">
                         <div className="flex justify-between items-center text-xs">

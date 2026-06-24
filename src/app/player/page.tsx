@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations, calculateLandingZ } from '@/lib/rules';
+import { BOARD_CELL_COUNT, BOARD_HEIGHT, BOARD_SIZE, getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations, calculateLandingZ } from '@/lib/rules';
 import { useSocket } from '@/components/SocketProvider';
 import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ScrollText } from 'lucide-react';
 import BoardIsometric from '@/components/BoardIsometric';
@@ -15,6 +15,12 @@ function translateReason(reason: string) {
   return '유효하지 않은 수입니다.';
 }
 
+interface PlayerSession {
+  roomCode: string;
+  nickname: string;
+  password: string;
+}
+
 export default function PlayerPage() {
   const { socket, isConnected, error } = useSocket();
   const [roomCode, setRoomCode] = useState('');
@@ -24,6 +30,7 @@ export default function PlayerPage() {
   const [playerId, setPlayerId] = useState<PlayerId | null>(null);
 
   const [isShaking, setIsShaking] = useState(false);
+  const restoredSessionRef = useRef<PlayerSession | null>(null);
   const triggerShake = () => {
     setIsShaking(true);
     setTimeout(() => setIsShaking(false), 400);
@@ -52,9 +59,6 @@ export default function PlayerPage() {
   const [announcedRound, setAnnouncedRound] = useState<number | null>(null);
   const roundOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Effect event state for visual feedback
-  const [effectEvent, setEffectEvent] = useState<{ id: string; type: 'stopped' | 'disappear'; cells: Coord[]; color: string } | null>(null);
-
   const { status, players, round, board, moves, roundRevealed, roundTopView } = useGameStore();
 
   const handleJoin = (e: React.FormEvent) => {
@@ -76,12 +80,16 @@ export default function PlayerPage() {
     const sessionStr = sessionStorage.getItem('playerSession');
     if (sessionStr && !joined) {
       try {
-        const session = JSON.parse(sessionStr);
-        setRoomCode(session.roomCode);
-        setNickname(session.nickname);
-        setPassword(session.password);
-        socket.emit('player_join', session.roomCode, session.nickname, session.password);
-      } catch (e) {
+        const session = JSON.parse(sessionStr) as PlayerSession;
+        if (!session.roomCode || !session.nickname || !session.password) {
+          throw new Error('Invalid player session');
+        }
+        restoredSessionRef.current = session;
+        const timer = setTimeout(() => {
+          socket.emit('player_join', session.roomCode, session.nickname, session.password);
+        }, 0);
+        return () => clearTimeout(timer);
+      } catch {
         sessionStorage.removeItem('playerSession');
       }
     }
@@ -122,43 +130,25 @@ export default function PlayerPage() {
     };
   }, [socket]);
 
-  // Watch for server-side move failures and hidden block hits
+  // Watch for server-side move failures.
   useEffect(() => {
     if (moves.length === 0 || !playerId) return;
     const latestMove = moves[moves.length - 1];
-    
-    if (latestMove.id !== lastProcessedMoveIdRef.current) {
-      lastProcessedMoveIdRef.current = latestMove.id;
-      
-      if (latestMove.playerId === playerId) {
-        if (!latestMove.valid) {
-          // Move failed (e.g. hit an opponent's hidden block and became unstable)
-          setEffectEvent({
-            id: latestMove.id,
-            type: 'disappear',
-            cells: latestMove.cells,
-            color: players.find(p => p.id === playerId)?.color || '#fff'
-          });
-          const timer = setTimeout(triggerShake, 0);
-          return () => clearTimeout(timer);
-        } else {
-          // Move succeeded. Check if it hit a hidden block (Z is higher than expected locally)
-          const myBlocks = board.filter(b => b.playerId === playerId);
-          // calculateLandingZ simulates dropping without hidden blocks
-          const localLandingZ = calculateLandingZ(myBlocks, latestMove.origin.x, latestMove.origin.y, latestMove.rotationIndex);
-          if (latestMove.origin.z > (localLandingZ ?? 0)) {
-            // It stopped higher than our local board expected!
-            setEffectEvent({
-              id: latestMove.id,
-              type: 'stopped',
-              cells: latestMove.cells,
-              color: players.find(p => p.id === playerId)?.color || '#fff'
-            });
-          }
-        }
-      }
-    }
-  }, [moves, playerId, board, players]);
+    if (latestMove.id === lastProcessedMoveIdRef.current) return;
+    lastProcessedMoveIdRef.current = latestMove.id;
+
+    if (latestMove.playerId !== playerId || latestMove.valid) return;
+
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
+    const startTimer = setTimeout(() => {
+      setIsShaking(true);
+      resetTimer = setTimeout(() => setIsShaking(false), 400);
+    }, 0);
+    return () => {
+      clearTimeout(startTimer);
+      if (resetTimer) clearTimeout(resetTimer);
+    };
+  }, [moves, playerId]);
 
 
 
@@ -173,6 +163,28 @@ export default function PlayerPage() {
   const myBlocks = board.filter(b => b.playerId === playerId);
   const visibleBoard = myBlocks;
   const sharedTopView = roundTopView ?? computeTopView([]);
+  const latestMove = moves[moves.length - 1];
+  let effectEvent: { id: string; type: 'stopped' | 'disappear'; cells: Coord[]; color: string } | null = null;
+
+  if (latestMove?.playerId === playerId) {
+    const color = me?.color || '#fff';
+    if (!latestMove.valid) {
+      effectEvent = { id: latestMove.id, type: 'disappear', cells: latestMove.cells, color };
+    } else {
+      // Exclude the new block when calculating where it would have landed on the
+      // information visible to this player.
+      const boardBeforeMove = myBlocks.filter((cell) => cell.turnId !== latestMove.id);
+      const localLandingZ = calculateLandingZ(
+        boardBeforeMove,
+        latestMove.origin.x,
+        latestMove.origin.y,
+        latestMove.rotationIndex
+      );
+      if (localLandingZ !== null && latestMove.origin.z > localLandingZ) {
+        effectEvent = { id: latestMove.id, type: 'stopped', cells: latestMove.cells, color };
+      }
+    }
+  }
 
   // Create a synthetic game state to run validations against
   const syntheticGameState: GameState = {
@@ -188,9 +200,9 @@ export default function PlayerPage() {
 
   if (currentRotationIndex === -1) {
     if (clampedX < 0) clampedX = 0;
-    if (clampedX >= 6) clampedX = 5;
+    if (clampedX >= BOARD_SIZE) clampedX = BOARD_SIZE - 1;
     if (clampedY < 0) clampedY = 0;
-    if (clampedY >= 6) clampedY = 5;
+    if (clampedY >= BOARD_SIZE) clampedY = BOARD_SIZE - 1;
   } else {
     const rotations = generateBlockRotations();
     if (currentRotationIndex >= 0 && currentRotationIndex < rotations.length) {
@@ -203,9 +215,9 @@ export default function PlayerPage() {
         if (c.y > maxY) maxY = c.y;
       }
       if (clampedX + minX < 0) clampedX = -minX;
-      if (clampedX + maxX >= 6) clampedX = 5 - maxX;
+      if (clampedX + maxX >= BOARD_SIZE) clampedX = BOARD_SIZE - 1 - maxX;
       if (clampedY + minY < 0) clampedY = -minY;
-      if (clampedY + maxY >= 6) clampedY = 5 - maxY;
+      if (clampedY + maxY >= BOARD_SIZE) clampedY = BOARD_SIZE - 1 - maxY;
     }
   }
 
@@ -278,8 +290,9 @@ export default function PlayerPage() {
       }
     } else {
       // Action mode: emit to server
-      if (socket && roomCode && isMyTurn && playerId && validation.valid) {
-        socket.emit('player_move', roomCode, playerId, { x: clampedX, y: clampedY }, rotationIndex);
+      const activeRoomCode = roomCode || restoredSessionRef.current?.roomCode;
+      if (socket && activeRoomCode && isMyTurn && playerId && validation.valid) {
+        socket.emit('player_move', activeRoomCode, playerId, { x: clampedX, y: clampedY }, rotationIndex);
         // Reset mode just in case
         setMode('action');
       }
@@ -529,6 +542,69 @@ export default function PlayerPage() {
           </div>
         )}
 
+        {/* Keep primary placement controls visible before the tall 3D board. */}
+        {status !== 'round_ended' && mode !== 'log' && (mode === 'action' ? isMyTurn : true) && (
+          <div className="w-full max-w-sm mb-4 space-y-3">
+            {mode === 'predict' && (
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex justify-between items-center text-sm">
+                <span className="text-zinc-400 font-bold text-xs tracking-wider">
+                  {String.fromCharCode(97 + clampedX)}{clampedY + 1} <span className="uppercase text-[10px] ml-1 opacity-50">Z:</span> {manualZ !== null ? manualZ : validation.landingZ ?? 0}
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">-</button>
+                  <button onClick={() => setManualZ((manualZ !== null ? manualZ : validation.landingZ ?? 0) + 1)} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">+</button>
+                  {manualZ !== null && (
+                    <button onClick={() => setManualZ(null)} className="px-3 h-8 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-purple-600/40">자동</button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleRotate}
+                disabled={mode === 'predict' && predictShape === '1x1'}
+                className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 border border-zinc-800"
+              >
+                <RotateCw className="w-5 h-5" /> 회전 {rotationIndex + 1}/12
+              </button>
+              <button
+                onClick={() => {
+                  if (validation.valid) {
+                    handleConfirmMove();
+                  } else {
+                    triggerShake();
+                  }
+                }}
+                className={`flex-[2] py-4 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2 ${
+                  mode === 'predict'
+                    ? (validation.valid ? 'bg-purple-600 hover:bg-purple-500' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed')
+                    : (validation.valid ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-zinc-800 text-rose-500/50 border-rose-500/10 border hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30')
+                }`}
+              >
+                {mode === 'predict' ? (
+                  <><Layers className="w-5 h-5" /> 예측</>
+                ) : (
+                  <><Send className="w-5 h-5" /> 확인</>
+                )}
+              </button>
+            </div>
+            {!validation.valid && (
+              <p className="text-center text-xs font-bold text-rose-500">
+                {translateReason(validation.reason || '')}
+              </p>
+            )}
+            {mode === 'predict' && predictions.length > 0 && (
+              <button
+                onClick={handleClearPredictions}
+                className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 border border-zinc-800"
+              >
+                <RefreshCcw className="w-4 h-4" /> 예측 초기화
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Hide the 3D board while the host presents the round result. */}
         {!(status === 'round_ended' && roundRevealed) && (() => {
           let currentPreviewCells: Coord[] = [];
@@ -539,10 +615,10 @@ export default function PlayerPage() {
           if (selectedHistoryMoveId) {
             currentPreviewCells = historyCells;
           } else if (mode === 'action' && isMyTurn) {
-            // In action mode, show the preview hovering at Z=7
+            // Float the actionable block directly above the 6-cell-high board.
             currentPreviewCells = validation.cells.map(c => ({
               ...c,
-              z: c.z - (validation.landingZ ?? 0) + 7
+              z: c.z - (validation.landingZ ?? 0) + BOARD_HEIGHT
             }));
             // Show the landing spot as a ghost block
             const ghostColor = validation.valid ? (activeColor || '#ffffff') : '#ef4444';
@@ -578,18 +654,19 @@ export default function PlayerPage() {
 
         {/* 2D Top View Share Grid for Round End */}
         {status === 'round_ended' && roundRevealed && (
-          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl p-6 mb-6 text-center space-y-4 shadow-xl">
+          <div className="w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-3xl p-4 sm:p-6 mb-6 text-center space-y-5 shadow-xl">
             <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
               <Eye className="w-4 h-4" /> 라운드 탑 뷰 영토 점유율
             </h3>
-            <div className="grid grid-cols-6 gap-2 w-64 h-64 mx-auto bg-zinc-950 p-3 rounded-2xl border border-zinc-900 shadow-inner">
-              {sharedTopView.map((col, x) =>
-                col.map((cell, y) => {
+            <div className="grid grid-cols-6 gap-2 sm:gap-2.5 w-full max-w-md aspect-square mx-auto bg-zinc-950 p-3 sm:p-4 rounded-2xl border border-zinc-900 shadow-inner">
+              {Array.from({ length: BOARD_SIZE }, (_, y) =>
+                Array.from({ length: BOARD_SIZE }, (_, x) => {
+                  const cell = sharedTopView[x][y];
                   const pColor = cell.playerId ? players.find((p) => p.id === cell.playerId)?.color : null;
                   return (
                     <div
                       key={`${x}-${y}`}
-                      className="rounded-lg aspect-square border border-white/5 flex items-center justify-center font-black text-[10px] text-white shadow-sm transition-all"
+                      className="rounded-lg sm:rounded-xl aspect-square border border-white/5 flex items-center justify-center font-black text-xs text-white shadow-sm transition-all"
                       style={{ backgroundColor: pColor || '#f3f4f6', boxShadow: cell.playerId ? 'inset 0 0 0 1px rgba(17,24,39,0.08)' : 'none' }}
                     >
                       {cell.playerId ? cell.playerId : ''}
@@ -599,12 +676,12 @@ export default function PlayerPage() {
               )}
             </div>
             {/* Grid ratio info */}
-            <div className="space-y-2 pt-2 text-left border-t border-zinc-800">
+            <div className="w-full max-w-md mx-auto space-y-2.5 pt-3 text-left border-t border-zinc-800">
               {players.map((p) => {
                 const cellCount = sharedTopView.flat().filter((cell) => cell.playerId === p.id).length;
-                const percent = Math.round((cellCount / 36) * 100);
+                const percent = Math.round((cellCount / BOARD_CELL_COUNT) * 100);
                 return (
-                  <div key={p.id} className="flex justify-between items-center text-[10px]">
+                  <div key={p.id} className="flex justify-between items-center text-xs">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full border border-white/10" style={{ backgroundColor: p.color }} />
                       <span className="font-extrabold text-zinc-300">{p.name}</span>
@@ -691,78 +768,6 @@ export default function PlayerPage() {
                 })
               )}
             </div>
-          </div>
-        )}
-
-        {/* Controls */}
-        {status !== 'round_ended' && mode !== 'log' && (mode === 'action' ? isMyTurn : true) && (
-          <div className="w-full max-w-sm space-y-3">
-            {mode === 'predict' && (
-              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex justify-between items-center text-sm">
-                <span className="text-zinc-400 font-bold text-xs tracking-wider">
-                  {String.fromCharCode(97 + clampedX)}{clampedY + 1} <span className="uppercase text-[10px] ml-1 opacity-50">Z:</span> {manualZ !== null ? manualZ : validation.landingZ ?? 0}
-                </span>
-                <div className="flex gap-2">
-                  <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">-</button>
-                  <button onClick={() => setManualZ((manualZ !== null ? manualZ : validation.landingZ ?? 0) + 1)} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">+</button>
-                  {manualZ !== null && (
-                    <button onClick={() => setManualZ(null)} className="px-3 h-8 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-purple-600/40">자동</button>
-                  )}
-                </div>
-              </div>
-            )}
-            {mode === 'action' && (
-              <div className={`rounded-2xl p-4 flex justify-between items-center text-sm transition-colors border ${
-                !validation.valid ? 'bg-rose-500/10 border-rose-500/30' : 'bg-zinc-900/50 border-zinc-800'
-              }`}>
-                <span className="text-zinc-400 font-bold tracking-wider">
-                  {String.fromCharCode(97 + clampedX)}{clampedY + 1} <span className="uppercase text-xs ml-1 opacity-50">예상 Z:</span> {validation.landingZ ?? 0}
-                </span>
-                {!validation.valid && (
-                  <span className={`text-xs font-bold ${isShaking ? 'text-rose-400' : 'text-rose-500'}`}>
-                    {translateReason(validation.reason || '')}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleRotate}
-                disabled={mode === 'predict' && predictShape === '1x1'}
-                className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 border border-zinc-800"
-              >
-                <RotateCw className="w-5 h-5" /> 회전 {rotationIndex + 1}/12
-              </button>
-              <button
-                onClick={() => {
-                  if (validation.valid) {
-                    handleConfirmMove();
-                  } else {
-                    triggerShake();
-                  }
-                }}
-                className={`flex-[2] py-4 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2 ${
-                  mode === 'predict' 
-                    ? (validation.valid ? 'bg-purple-600 hover:bg-purple-500' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed')
-                    : (validation.valid ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-zinc-800 text-rose-500/50 border-rose-500/10 border hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30')
-                }`}
-              >
-                {mode === 'predict' ? (
-                  <><Layers className="w-5 h-5" /> 예측</>
-                ) : (
-                  <><Send className="w-5 h-5" /> 확인</>
-                )}
-              </button>
-            </div>
-            {mode === 'predict' && predictions.length > 0 && (
-              <button
-                onClick={handleClearPredictions}
-                className="w-full py-3 mt-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 border border-zinc-800"
-              >
-                <RefreshCcw className="w-4 h-4" /> 예측 초기화
-              </button>
-            )}
           </div>
         )}
 
