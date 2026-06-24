@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView } from '@/lib/rules';
+import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations } from '@/lib/rules';
 import { useSocket } from '@/components/SocketProvider';
 import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ScrollText } from 'lucide-react';
 import BoardIsometric from '@/components/BoardIsometric';
@@ -112,6 +112,9 @@ export default function PlayerPage() {
     }
   }, [moves, playerId]);
 
+
+
+
   const activePlayerId = players.length > 0 ? getCurrentPlayer(useGameStore.getState()) : null;
   const isMyTurn = playerId === activePlayerId;
   const me = players.find(p => p.id === playerId);
@@ -131,6 +134,33 @@ export default function PlayerPage() {
 
   const currentRotationIndex = (mode === 'predict' && predictShape === '1x1') ? -1 : rotationIndex;
 
+  // Clamp origin to fit within board boundaries based on current rotation
+  let clampedX = originX;
+  let clampedY = originY;
+
+  if (currentRotationIndex === -1) {
+    if (clampedX < 0) clampedX = 0;
+    if (clampedX >= 5) clampedX = 4;
+    if (clampedY < 0) clampedY = 0;
+    if (clampedY >= 5) clampedY = 4;
+  } else {
+    const rotations = generateBlockRotations();
+    if (currentRotationIndex >= 0 && currentRotationIndex < rotations.length) {
+      const rotation = rotations[currentRotationIndex];
+      let minX = 0, maxX = 0, minY = 0, maxY = 0;
+      for (const c of rotation) {
+        if (c.x < minX) minX = c.x;
+        if (c.x > maxX) maxX = c.x;
+        if (c.y < minY) minY = c.y;
+        if (c.y > maxY) maxY = c.y;
+      }
+      if (clampedX + minX < 0) clampedX = -minX;
+      if (clampedX + maxX >= 5) clampedX = 4 - maxX;
+      if (clampedY + minY < 0) clampedY = -minY;
+      if (clampedY + maxY >= 5) clampedY = 4 - maxY;
+    }
+  }
+
   // Custom validation to support 1x1 block
   const computeValidation = () => {
     if (!playerId) return { valid: false, cells: [], reason: '', landingZ: 0 };
@@ -139,10 +169,10 @@ export default function PlayerPage() {
       if (!activePredictionPlayerId) return { valid: false, cells: [], reason: '', landingZ: 0 };
       const z = manualZ !== null
         ? manualZ
-        : getColumnHeight(syntheticGameState.board, originX, originY);
+        : getColumnHeight(syntheticGameState.board, clampedX, clampedY);
       return {
         valid: true,
-        cells: [{ x: originX, y: originY, z }],
+        cells: [{ x: clampedX, y: clampedY, z }],
         landingZ: z
       };
     }
@@ -153,7 +183,7 @@ export default function PlayerPage() {
     return validatePlacement(
       syntheticGameState,
       targetPlayerId,
-      { x: originX, y: originY, z: manualZ !== null && mode === 'predict' ? manualZ : undefined },
+      { x: clampedX, y: clampedY, z: manualZ !== null && mode === 'predict' ? manualZ : undefined },
       currentRotationIndex === -1 ? 0 : currentRotationIndex,
       mode === 'predict'
         ? { allowOverlap: true, allowFloating: true }
@@ -201,7 +231,7 @@ export default function PlayerPage() {
     } else {
       // Action mode: emit to server
       if (socket && roomCode && isMyTurn && playerId && validation.valid) {
-        socket.emit('player_move', roomCode, playerId, { x: originX, y: originY }, rotationIndex);
+        socket.emit('player_move', roomCode, playerId, { x: clampedX, y: clampedY }, rotationIndex);
         // Reset mode just in case
         setMode('action');
       }
@@ -599,7 +629,7 @@ export default function PlayerPage() {
             {mode === 'predict' && (
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex justify-between items-center text-sm">
                 <span className="text-zinc-400 font-bold text-xs tracking-wider">
-                  {String.fromCharCode(97 + originX)}{originY + 1} <span className="uppercase text-[10px] ml-1 opacity-50">Z:</span> {manualZ !== null ? manualZ : validation.landingZ ?? 0}
+                  {String.fromCharCode(97 + clampedX)}{clampedY + 1} <span className="uppercase text-[10px] ml-1 opacity-50">Z:</span> {manualZ !== null ? manualZ : validation.landingZ ?? 0}
                 </span>
                 <div className="flex gap-2">
                   <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">-</button>
@@ -615,7 +645,7 @@ export default function PlayerPage() {
                 !validation.valid ? 'bg-rose-500/10 border-rose-500/30' : 'bg-zinc-900/50 border-zinc-800'
               }`}>
                 <span className="text-zinc-400 font-bold tracking-wider">
-                  {String.fromCharCode(97 + originX)}{originY + 1} <span className="uppercase text-xs ml-1 opacity-50">예상 Z:</span> {validation.landingZ ?? 0}
+                  {String.fromCharCode(97 + clampedX)}{clampedY + 1} <span className="uppercase text-xs ml-1 opacity-50">예상 Z:</span> {validation.landingZ ?? 0}
                 </span>
                 {!validation.valid && (
                   <span className={`text-xs font-bold ${isShaking ? 'text-rose-400' : 'text-rose-500'}`}>
