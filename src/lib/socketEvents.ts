@@ -6,6 +6,7 @@ export interface ServerToClientEvents {
   host_rejoined: () => void;
   player_joined: (playerId: PlayerId) => void;
   game_state_update: (state: GameState, roomCode: string) => void;
+  round_started: (round: number) => void;
   error_message: (message: string) => void;
   kicked: (message: string) => void;
 }
@@ -20,6 +21,8 @@ export interface ClientToServerEvents {
   host_force_end: (roomCode: string) => void;
   host_kick_player: (roomCode: string, playerId: PlayerId) => void;
   host_reset_game: (roomCode: string) => void;
+  host_reveal_round: (roomCode: string) => void;
+  host_start_next_round: (roomCode: string) => void;
 
   // Player actions
   player_join: (roomCode: string, nickname: string, password?: string) => void;

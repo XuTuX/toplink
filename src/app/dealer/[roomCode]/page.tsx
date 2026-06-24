@@ -16,6 +16,9 @@ export default function DealerRoomPage() {
   const [rejoined, setRejoined] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // History preview state
+  const [selectedHistoryMoveId, setSelectedHistoryMoveId] = useState<string | null>(null);
+
   const {
     status,
     players,
@@ -24,13 +27,19 @@ export default function DealerRoomPage() {
     round,
     turnIndexInRound,
     endPending,
+    roundRevealed,
   } = useGameStore();
+
+  const historyMove = moves.find(m => m.id === selectedHistoryMoveId);
+  const historyCells = historyMove?.cells || [];
 
   useEffect(() => {
     if (!socket || !isConnected) return;
 
     const sessionStr = sessionStorage.getItem('hostSession');
     if (!sessionStr) {
+      // Session storage is an external client-side source initialized after hydration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAuthError('호스트 인증 정보가 없습니다. 새로 방을 만들어주세요.');
       setTimeout(() => router.push('/dealer'), 2000);
       return;
@@ -62,7 +71,7 @@ export default function DealerRoomPage() {
         socket.off('host_rejoined', onRejoined);
         socket.off('error_message', onError);
       };
-    } catch (e) {
+    } catch {
       setAuthError('잘못된 세션 정보입니다.');
       setTimeout(() => router.push('/dealer'), 2000);
     }
@@ -103,6 +112,18 @@ export default function DealerRoomPage() {
     }
   };
 
+  const handleRevealRound = () => {
+    if (socket && roomCode) {
+      socket.emit('host_reveal_round', roomCode);
+    }
+  };
+
+  const handleStartNextRound = () => {
+    if (socket && roomCode) {
+      socket.emit('host_start_next_round', roomCode);
+    }
+  };
+
   // Loading/Auth Error State
   if (authError || !rejoined || status === 'setup') {
     return (
@@ -113,23 +134,23 @@ export default function DealerRoomPage() {
           </div>
 
           <div>
-            <h1 className="text-3xl font-black text-white tracking-tight mb-2">호스트 대시보드</h1>
+            <h1 className="text-3xl font-black text-zinc-100 tracking-tight mb-2">호스트 대시보드</h1>
             <p className="text-sm text-zinc-400">방을 관리하고 대기하세요.</p>
           </div>
 
           {authError ? (
-            <div className="p-4 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl text-sm font-bold animate-pulse">
+            <div className="p-4 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl text-sm font-bold">
               {authError}
             </div>
           ) : !isConnected || !rejoined ? (
-            <div className="p-4 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl text-sm font-bold animate-pulse">
+            <div className="p-4 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl text-sm font-bold">
               호스트 세션 복구 중...
             </div>
           ) : (
             <div className="space-y-6">
               <div className="p-6 bg-zinc-950 rounded-2xl border border-zinc-800">
                 <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mb-2">방 코드</p>
-                <p className="text-5xl font-black text-white tracking-widest font-mono">{roomCode}</p>
+                <p className="text-5xl font-black text-zinc-100 tracking-widest font-mono">{roomCode}</p>
               </div>
 
               <div className="text-left space-y-4">
@@ -167,7 +188,7 @@ export default function DealerRoomPage() {
               <button
                 onClick={handleStartGame}
                 disabled={players.length === 0}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white rounded-xl text-lg font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] disabled:shadow-none active:scale-95 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white rounded-xl text-base font-bold transition-colors disabled:shadow-none flex items-center justify-center gap-2"
               >
                 <Play className="w-5 h-5" /> 게임 시작
               </button>
@@ -186,10 +207,7 @@ export default function DealerRoomPage() {
   // Active Game State
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-sans pb-12 relative overflow-hidden selection:bg-zinc-800 selection:text-white">
-      <div className="absolute top-[-10%] right-[10%] h-[400px] w-[600px] rounded-full bg-blue-600/5 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[5%] left-[5%] h-[350px] w-[500px] rounded-full bg-indigo-600/5 blur-[100px] pointer-events-none" />
-
-      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-md sticky top-0 z-20">
+      <header className="border-b border-zinc-900 bg-zinc-950/70 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400 border border-blue-500/20">
@@ -220,7 +238,7 @@ export default function DealerRoomPage() {
         
         {/* Left Column */}
         <div className="lg:col-span-4 space-y-6">
-          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl backdrop-blur-xl shadow-xl">
+          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl shadow-lg">
             <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 flex items-center gap-2">
               <Activity className="w-4 h-4 text-zinc-400" /> 세션 상태
             </h2>
@@ -230,7 +248,7 @@ export default function DealerRoomPage() {
                 <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">상태</span>
                 <span className={`text-xs font-black capitalize ${
                   status === 'playing' ? 'text-blue-400' :
-                  status === 'end_pending' ? 'text-amber-500 animate-pulse' :
+                  status === 'end_pending' ? 'text-amber-500' :
                   status === 'ended' ? 'text-purple-400' : 'text-zinc-400'
                 }`}>
                   {status.replace('_', ' ')}
@@ -264,44 +282,86 @@ export default function DealerRoomPage() {
           </div>
 
           {status !== 'ended' && (
-            <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl backdrop-blur-xl shadow-xl space-y-4">
-              <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">현재 플레이어 정보</h2>
+            <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl shadow-lg space-y-4">
+              {status === 'round_ended' ? (
+                <>
+                  <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">라운드 관리</h2>
+                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-center space-y-2">
+                    <span className="text-xs font-black text-indigo-400 block">라운드 {round} 종료</span>
+                    <p className="text-[10px] text-zinc-500">
+                      모든 플레이어가 배치를 완료했습니다.
+                    </p>
+                  </div>
 
-              <div className="flex items-center gap-3 p-3.5 bg-zinc-950/40 border border-zinc-900 rounded-2xl">
-                <div
-                  className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-md"
-                  style={{ backgroundColor: activePlayer?.color }}
-                />
-                <div>
-                  <span className="text-xs font-black text-zinc-100">{activePlayer?.name}</span>
-                  <span className="text-[9px] text-zinc-500 block mt-0.5 font-bold uppercase tracking-wider">
-                    자리 {activePlayerId} • 순서: {turnIndexInRound + 1}/{players.length}
-                  </span>
-                </div>
-              </div>
+                  <div className="space-y-2 pt-2">
+                    {!roundRevealed ? (
+                      <button
+                        onClick={handleRevealRound}
+                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Eye className="w-4 h-4" /> 라운드 탑뷰 결과 공개
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleStartNextRound}
+                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Play className="w-4 h-4" /> {round + 1}라운드 시작
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">현재 플레이어 정보</h2>
 
-              <div className="space-y-2 pt-2">
-                <button
-                  onClick={handleForceSkip}
-                  className="w-full py-3 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-white text-zinc-400 rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
-                >
-                  현재 턴 강제 스킵
-                </button>
-                <button
-                  onClick={handleForceEnd}
-                  className="w-full py-3 bg-rose-500/10 border border-rose-500/15 hover:bg-rose-500/20 hover:border-rose-500/25 rounded-2xl text-xs font-extrabold transition-all text-rose-400 cursor-pointer"
-                >
-                  스테이지 강제 종료 및 점수 계산
-                </button>
-              </div>
+                  <div className="flex items-center gap-3 p-3.5 bg-zinc-950/40 border border-zinc-900 rounded-2xl">
+                    <div
+                      className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-md"
+                      style={{ backgroundColor: activePlayer?.color }}
+                    />
+                    <div>
+                      <span className="text-xs font-black text-zinc-100">{activePlayer?.name}</span>
+                      <span className="text-[9px] text-zinc-500 block mt-0.5 font-bold uppercase tracking-wider">
+                        자리 {activePlayerId} • 순서: {turnIndexInRound + 1}/{players.length}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <button
+                      onClick={handleForceSkip}
+                      className="w-full py-3 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-white text-zinc-400 rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
+                    >
+                      현재 턴 강제 스킵
+                    </button>
+                    <button
+                      onClick={handleForceEnd}
+                      className="w-full py-3 bg-rose-500/10 border border-rose-500/15 hover:bg-rose-500/20 hover:border-rose-500/25 rounded-2xl text-xs font-extrabold transition-all text-rose-400 cursor-pointer"
+                    >
+                      스테이지 강제 종료 및 점수 계산
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {/* Replay Log */}
-          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl backdrop-blur-xl shadow-xl flex flex-col max-h-[300px]">
-            <div className="flex items-center gap-2 mb-4 shrink-0">
-              <ListTodo className="h-4.5 w-4.5 text-zinc-500" />
-              <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">행동 로그</h2>
+          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl shadow-lg flex flex-col max-h-[300px]">
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <ListTodo className="h-4.5 w-4.5 text-zinc-500" />
+                <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-left">행동 로그</h2>
+              </div>
+              {selectedHistoryMoveId && (
+                <button
+                  onClick={() => setSelectedHistoryMoveId(null)}
+                  className="text-[9px] text-indigo-400 hover:text-indigo-300 font-bold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 transition-colors"
+                >
+                  미리보기 해제
+                </button>
+              )}
             </div>
             
             <div className="overflow-y-auto space-y-2.5 flex-1 pr-1 custom-scrollbar">
@@ -312,32 +372,43 @@ export default function DealerRoomPage() {
               ) : (
                 [...moves].reverse().map((move) => {
                   const p = players.find((pl) => pl.id === move.playerId);
+                  const isSelected = selectedHistoryMoveId === move.id;
                   return (
-                    <div key={move.id} className="p-3.5 bg-zinc-950/40 border border-zinc-900 rounded-2xl text-xs flex justify-between items-start gap-2 shadow-sm">
+                    <button
+                      key={move.id}
+                      onClick={() => setSelectedHistoryMoveId(isSelected ? null : move.id)}
+                      className={`w-full text-left p-3.5 border rounded-2xl text-xs flex justify-between items-start gap-2 shadow-sm transition-all ${
+                        isSelected
+                          ? 'bg-indigo-650/20 border-indigo-500/50 shadow-lg ring-1 ring-indigo-500/30'
+                          : 'bg-zinc-950/40 border-zinc-900 hover:bg-zinc-900/60 hover:border-zinc-850'
+                      }`}
+                    >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <div className="w-2.5 h-2.5 rounded-full border border-white/10" style={{ backgroundColor: p?.color }} />
                           <span className="font-extrabold text-zinc-200 text-xs">{p?.name || move.playerId}</span>
                         </div>
-                        <span className="text-[9.5px] text-zinc-500 block font-mono mt-1">
-                          라운드 {move.round} · 슬롯 {move.turnIndex + 1}
+                        <span className="text-[9.5px] text-zinc-500 block font-mono">
+                          라운드 {move.round} · {move.valid ? `슬롯 ${move.turnIndex + 1}` : '패스'}
                         </span>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {move.cells.map((c, i) => (
-                            <span key={i} className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded font-mono text-[8.5px] text-zinc-400">
-                              {c.x},{c.y},{c.z}
-                            </span>
-                          ))}
-                        </div>
+                        {move.valid && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {move.cells.map((c, i) => (
+                              <span key={i} className="px-1 py-0.5 bg-zinc-900 border border-zinc-800 rounded font-mono text-[8.5px] text-zinc-400">
+                                {String.fromCharCode(97 + c.x)}{c.y + 1}(Z:{c.z})
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div>
                         {move.valid ? (
                           <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">유효</span>
                         ) : (
-                          <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md font-black text-[9px] uppercase tracking-wider" title={move.invalidReason}>스킵</span>
+                          <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">스킵</span>
                         )}
                       </div>
-                    </div>
+                    </button>
                   );
                 })
               )}
@@ -347,16 +418,23 @@ export default function DealerRoomPage() {
 
         {/* Right Column */}
         <div className="lg:col-span-8 space-y-6">
-          <div className="bg-zinc-900/20 p-8 rounded-[36px] border border-zinc-900 backdrop-blur-xl flex flex-col items-center shadow-2xl relative overflow-hidden">
+          <div className="bg-zinc-900/20 p-8 rounded-[36px] border border-zinc-900 flex flex-col items-center shadow-lg relative overflow-hidden">
             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-6 relative z-10">
               3D 세션 보드
             </h3>
             <div className="relative z-10 w-full max-w-lg">
-              <BoardIsometric board={board} players={players} />
+              <BoardIsometric
+                board={board}
+                players={players}
+                previewCells={selectedHistoryMoveId ? historyCells : []}
+                isPreviewValid={selectedHistoryMoveId ? historyMove?.valid : true}
+                previewColor={selectedHistoryMoveId ? (historyMove?.valid ? (players.find(p => p.id === historyMove.playerId)?.color || '#22c55e') : '#ef4444') : undefined}
+                isHistoryPreview={!!selectedHistoryMoveId}
+              />
             </div>
           </div>
 
-          <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-[36px] backdrop-blur-xl shadow-2xl">
+          <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-[36px] shadow-lg">
             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-2 w-full">
               <Eye className="h-4.5 w-4.5 text-indigo-400" /> 실시간 탑 뷰 영토 점유율
             </h3>
@@ -370,7 +448,7 @@ export default function DealerRoomPage() {
                       <div
                         key={`${x}-${y}`}
                         className="rounded-xl aspect-square border border-white/5 flex items-center justify-center font-black text-xs text-white shadow-sm"
-                        style={{ backgroundColor: pColor || '#141416', boxShadow: cell.playerId ? 'inset 0 0 8px rgba(255,255,255,0.25)' : 'none' }}
+                        style={{ backgroundColor: pColor || '#f3f4f6', boxShadow: cell.playerId ? 'inset 0 0 0 1px rgba(17,24,39,0.08)' : 'none' }}
                       >
                         {cell.playerId ? cell.playerId : ''}
                       </div>

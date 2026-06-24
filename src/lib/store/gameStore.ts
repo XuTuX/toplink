@@ -15,12 +15,17 @@ const getInitialState = (): GameState => ({
   board: [],
   moves: [],
   endPending: false,
+  roundRevealed: false,
+  roundTopView: null,
 });
 
 export const useGameStore = create<GameStore>((set) => ({
   ...getInitialState(),
 
   setGameState: (state: GameState) => {
-    set(state);
+    set({
+      ...state,
+      roundTopView: state.roundTopView ?? null,
+    });
   },
 }));

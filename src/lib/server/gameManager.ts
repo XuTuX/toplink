@@ -1,4 +1,4 @@
-import { GameState, Player, PlayerId, applyMove, calculateResults, getCurrentPlayer } from '../rules/index';
+import { GameState, Player, PlayerId, TopViewCell, applyMove, calculateResults, computeTopView, getCurrentPlayer, startNextRound as rulesStartNextRound } from '../rules/index';
 
 interface Room {
   roomCode: string;
@@ -28,6 +28,42 @@ const getInitialState = (id: string): GameState => ({
   board: [],
   moves: [],
   endPending: false,
+  roundRevealed: false,
+  roundTopView: null,
+});
+
+const withoutPasswords = (players: Player[]): Player[] => players.map((player) => ({
+  id: player.id,
+  name: player.name,
+  color: player.color,
+}));
+
+const withoutHeight = (topView: TopViewCell[][] | null | undefined): TopViewCell[][] | null | undefined => {
+  if (topView == null) return topView;
+  return topView.map((column) => column.map((cell) => ({ ...cell, z: null })));
+};
+
+export const getHostGameState = (state: GameState): GameState => ({
+  ...state,
+  players: withoutPasswords(state.players),
+});
+
+export const getPlayerGameState = (state: GameState, playerId: PlayerId): GameState => ({
+  ...state,
+  players: withoutPasswords(state.players),
+  board: state.board.filter((cell) => cell.playerId === playerId),
+  moves: state.moves.map((move) => move.playerId === playerId ? move : {
+    ...move,
+    origin: { x: 0, y: 0, z: 0 },
+    rotationIndex: 0,
+    cells: [],
+    invalidReason: undefined,
+  }),
+  roundTopView: withoutHeight(state.roundTopView),
+  result: state.result ? {
+    ...state.result,
+    topView: withoutHeight(state.result.topView) ?? [],
+  } : undefined,
 });
 
 const DEFAULT_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#eab308'];
@@ -152,8 +188,8 @@ export const forceSkipTurn = (roomCode: string, hostSocketId: string): boolean =
     createdAt: new Date().toISOString(),
   };
 
-  let newRound = room.gameState.round;
-  let newTurnIndex = room.gameState.turnIndexInRound + 1;
+  const newRound = room.gameState.round;
+  const newTurnIndex = room.gameState.turnIndexInRound + 1;
   let newStatus: GameState['status'] = room.gameState.status;
   let finalResult = room.gameState.result;
 
@@ -165,8 +201,7 @@ export const forceSkipTurn = (roomCode: string, hostSocketId: string): boolean =
         board: room.gameState.board,
       });
     } else {
-      newRound += 1;
-      newTurnIndex = 0;
+      newStatus = 'round_ended';
     }
   }
 
@@ -177,6 +212,8 @@ export const forceSkipTurn = (roomCode: string, hostSocketId: string): boolean =
     status: newStatus,
     moves: [...room.gameState.moves, skipMove],
     result: finalResult,
+    roundRevealed: newStatus === 'round_ended' ? false : room.gameState.roundRevealed,
+    roundTopView: newStatus === 'round_ended' ? null : room.gameState.roundTopView,
   };
 
   return true;
@@ -224,5 +261,25 @@ export const resetGame = (roomCode: string, hostSocketId: string): boolean => {
     players: currentPlayers,
     baseTurnOrder: currentBaseOrder,
   };
+  return true;
+};
+
+export const revealRound = (roomCode: string, hostSocketId: string): boolean => {
+  const room = rooms.get(roomCode);
+  if (!room || room.hostSocketId !== hostSocketId) return false;
+  if (room.gameState.status !== 'round_ended') return false;
+
+  room.gameState.roundRevealed = true;
+  room.gameState.roundTopView = withoutHeight(computeTopView(room.gameState.board));
+  return true;
+};
+
+export const startNextRound = (roomCode: string, hostSocketId: string): boolean => {
+  const room = rooms.get(roomCode);
+  if (!room || room.hostSocketId !== hostSocketId) return false;
+  if (room.gameState.status !== 'round_ended') return false;
+  if (!room.gameState.roundRevealed) return false;
+
+  room.gameState = rulesStartNextRound(room.gameState);
   return true;
 };

@@ -15,6 +15,7 @@ interface BoardIsometricProps {
   previewColor?: string;
   predictedCells?: { x: number; y: number; z: number; color: string }[];
   highlightedCube?: { x: number; y: number; z: number } | null;
+  isHistoryPreview?: boolean;
 }
 
 const CUBE_LOCAL_VERTICES = [
@@ -47,6 +48,7 @@ export default function BoardIsometric({
   previewColor,
   predictedCells = [],
   highlightedCube = null,
+  isHistoryPreview = false,
 }: BoardIsometricProps) {
   const [localHoveredCell, setLocalHoveredCell] = useState<{ x: number; y: number } | null>(null);
 
@@ -61,7 +63,6 @@ export default function BoardIsometric({
   // Smooth rotation animation loop
   useEffect(() => {
     if (Math.abs(targetTheta - theta) < 0.001) {
-      setTheta(targetTheta);
       return;
     }
     let animId: number;
@@ -163,43 +164,43 @@ export default function BoardIsometric({
   });
 
   // 3. Shading helpers
-  const getTopFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean) => ({
+  const getTopFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean, isHistoryPreview?: boolean) => ({
     fill: baseColor,
-    filter: isHovered || isHighlighted ? 'brightness(1.3)' : 'brightness(1.15)',
-    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-    strokeWidth: isPreview || isHovered || isHighlighted ? 1.5 : 0.8,
+    filter: isHovered || isHighlighted ? 'brightness(1.3)' : isHistoryPreview && isPreview ? 'brightness(1.25)' : 'brightness(1.15)',
+    stroke: isPreview ? (isHistoryPreview ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.4)') : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+    strokeWidth: isPreview ? (isHistoryPreview ? 2.5 : 1.5) : isHovered || isHighlighted ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
-  const getLeftFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean) => ({
+  const getLeftFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean, isHistoryPreview?: boolean) => ({
     fill: baseColor,
-    filter: isHovered || isHighlighted ? 'brightness(0.9)' : 'brightness(0.75)',
-    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-    strokeWidth: isPreview || isHovered || isHighlighted ? 1.5 : 0.8,
+    filter: isHovered || isHighlighted ? 'brightness(0.9)' : isHistoryPreview && isPreview ? 'brightness(0.85)' : 'brightness(0.75)',
+    stroke: isPreview ? (isHistoryPreview ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.4)') : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+    strokeWidth: isPreview ? (isHistoryPreview ? 2.5 : 1.5) : isHovered || isHighlighted ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
-  const getRightFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean) => ({
+  const getRightFaceStyle = (baseColor: string, isPreview?: boolean, isHovered?: boolean, isHighlighted?: boolean, isHistoryPreview?: boolean) => ({
     fill: baseColor,
-    filter: isHovered || isHighlighted ? 'brightness(1.05)' : 'brightness(0.9)',
-    stroke: isPreview ? 'rgba(255, 255, 255, 0.4)' : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-    strokeWidth: isPreview || isHovered || isHighlighted ? 1.5 : 0.8,
+    filter: isHovered || isHighlighted ? 'brightness(1.05)' : isHistoryPreview && isPreview ? 'brightness(1.0)' : 'brightness(0.9)',
+    stroke: isPreview ? (isHistoryPreview ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.4)') : isHighlighted ? '#fde047' : isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+    strokeWidth: isPreview ? (isHistoryPreview ? 2.5 : 1.5) : isHovered || isHighlighted ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
 
   const getGridTopFaceStyle = (isHovered?: boolean) => ({
-    fill: isHovered ? '#2c2c35' : '#1e1e24',
-    stroke: isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.08)',
+    fill: isHovered ? '#eef2ff' : '#f8fafc',
+    stroke: isHovered ? '#6366f1' : '#d1d5db',
     strokeWidth: isHovered ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
   const getGridLeftFaceStyle = (isHovered?: boolean) => ({
-    fill: isHovered ? '#16161a' : '#0c0c10',
-    stroke: isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.04)',
+    fill: isHovered ? '#dfe5f2' : '#e5e7eb',
+    stroke: isHovered ? '#6366f1' : '#d1d5db',
     strokeWidth: isHovered ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
   const getGridRightFaceStyle = (isHovered?: boolean) => ({
-    fill: isHovered ? '#1c1c20' : '#121216',
-    stroke: isHovered ? '#3b82f6' : 'rgba(255, 255, 255, 0.04)',
+    fill: isHovered ? '#e8ebf4' : '#eef0f3',
+    stroke: isHovered ? '#6366f1' : '#d1d5db',
     strokeWidth: isHovered ? 1.5 : 0.8,
     strokeLinejoin: 'round' as const,
   });
@@ -265,7 +266,11 @@ export default function BoardIsometric({
     const depthB = b.rx + b.ry + b.z;
     if (Math.abs(depthA - depthB) > 0.01) return depthA - depthB;
     if (a.z !== b.z) return b.z - a.z;
-    return a.rx - b.rx;
+    if (a.rx !== b.rx) return a.rx - b.rx;
+    if (a.isPreview !== b.isPreview) {
+      return a.isPreview ? 1 : -1;
+    }
+    return 0;
   });
 
   const gridCellsData: { x: number; y: number; cx: number; cy: number; rx: number; ry: number }[] = [];
@@ -298,7 +303,7 @@ export default function BoardIsometric({
               e.preventDefault();
               setTargetTheta((prev) => prev - Math.PI / 2);
             }}
-            className="w-8 h-8 bg-zinc-950/80 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg flex items-center justify-center shadow-lg transition-all hover:bg-zinc-900 active:scale-95 cursor-pointer"
+            className="w-8 h-8 bg-zinc-950/80 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg flex items-center justify-center shadow-sm transition-colors hover:bg-zinc-900"
             title="Rotate View Left"
           >
             <RotateCcw className="w-4 h-4" />
@@ -309,14 +314,14 @@ export default function BoardIsometric({
               e.preventDefault();
               setTargetTheta((prev) => prev + Math.PI / 2);
             }}
-            className="w-8 h-8 bg-zinc-950/80 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg flex items-center justify-center shadow-lg transition-all hover:bg-zinc-900 active:scale-95 cursor-pointer"
+            className="w-8 h-8 bg-zinc-950/80 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg flex items-center justify-center shadow-sm transition-colors hover:bg-zinc-900"
             title="Rotate View Right"
           >
             <RotateCw className="w-4 h-4" />
           </button>
         </div>
 
-        <svg viewBox="0 0 384 390" width="100%" height="100%" className="overflow-visible select-none drop-shadow-2xl">
+        <svg viewBox="0 0 384 390" width="100%" height="100%" className="overflow-visible select-none drop-shadow-sm">
           <g>
             {gridCellsData.map((cell) => {
               const isHovered = currentHoveredCell?.x === cell.x && currentHoveredCell?.y === cell.y;
@@ -336,7 +341,7 @@ export default function BoardIsometric({
                     x={0}
                     y={-L + 3}
                     textAnchor="middle"
-                    className="text-[11px] font-mono fill-zinc-400 opacity-80 pointer-events-none select-none font-bold tracking-widest"
+                    className="text-[11px] font-mono fill-zinc-500 pointer-events-none select-none font-semibold tracking-wider"
                   >
                     {String.fromCharCode(97 + cell.x)}{cell.y + 1}
                   </text>
@@ -350,15 +355,24 @@ export default function BoardIsometric({
               const typeStr = cube.isPreview ? 'preview' : cube.isPrediction ? 'predict' : 'placed';
               const key = `${cube.x}-${cube.y}-${cube.z}-${typeStr}-${cube.color}`;
 
+              let opacity = 1.0;
+              if (cube.isPreview) {
+                opacity = 1.0;
+              } else if (cube.isPrediction) {
+                opacity = isHistoryPreview ? 0.15 : 0.4;
+              } else {
+                opacity = isHistoryPreview ? 0.35 : 1.0;
+              }
+
               return (
                 <g
                   key={key}
                   style={{
                     transform: `translate(${cube.cx}px, ${cube.cy}px)`,
-                    opacity: cube.isPreview ? 0.75 : cube.isPrediction ? 0.4 : 1,
-                    transition: 'none'
+                    opacity,
+                    transition: 'opacity 0.3s ease, transform 0s'
                   }}
-                  className={cube.isPreview ? 'pointer-events-none animate-pulse' : cube.isPrediction ? 'pointer-events-none' : 'cursor-pointer pointer-events-auto'}
+                  className={cube.isPreview ? 'pointer-events-none' : cube.isPrediction ? 'pointer-events-none' : 'cursor-pointer pointer-events-auto'}
                   onClick={cube.isPreview || cube.isPrediction ? undefined : () => onCellClick?.(cube.x, cube.y)}
                   onMouseEnter={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseEnter(cube.x, cube.y)}
                   onMouseLeave={cube.isPreview || cube.isPrediction ? undefined : () => handleMouseLeave(cube.x)}
@@ -368,7 +382,7 @@ export default function BoardIsometric({
                   <path
                     key={faceIdx}
                     d={face.d}
-                    {...face.getStyle(cube.color, cube.isPreview, isHovered, cube.isHighlighted)}
+                    {...face.getStyle(cube.color, cube.isPreview, isHovered, cube.isHighlighted, isHistoryPreview)}
                     className="transition-all duration-300 pointer-events-none"
                   />
                 ))}
@@ -388,7 +402,7 @@ export default function BoardIsometric({
           <div className="w-3 h-3 bg-zinc-900 border border-zinc-800 rounded shadow-sm" />
           <span>Base Grid</span>
         </div>
-        <div className="flex items-center gap-1.5 animate-pulse">
+        <div className="flex items-center gap-1.5">
           <div 
             className="w-3 h-3 rounded border border-white/20" 
             style={{ backgroundColor: previewColor || '#a1a1aa', opacity: 0.6 }}

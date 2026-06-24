@@ -62,7 +62,7 @@ export interface GameResult {
 
 export interface GameState {
   id: string;
-  status: 'setup' | 'playing' | 'end_pending' | 'ended';
+  status: 'setup' | 'playing' | 'end_pending' | 'ended' | 'round_ended';
   players: Player[];
   baseTurnOrder: PlayerId[];
   round: number;
@@ -73,6 +73,8 @@ export interface GameState {
   endTriggeredByMoveId?: string;
   endTriggeredAtRound?: number;
   result?: GameResult;
+  roundRevealed?: boolean;
+  roundTopView?: TopViewCell[][] | null;
 }
 
 // 1. Generate Block Rotations (from rotations module)
@@ -266,7 +268,7 @@ export function applyMove(
   origin: { x: number; y: number; z?: number },
   rotationIndex: number
 ): GameState {
-  if (game.status === 'ended') {
+  if (game.status !== 'playing' && game.status !== 'end_pending') {
     return game;
   }
 
@@ -325,8 +327,8 @@ export function applyMove(
   }
 
   // 5. Update turns
-  let newRound = game.round;
-  let newTurnIndex = game.turnIndexInRound + 1;
+  const newRound = game.round;
+  const newTurnIndex = game.turnIndexInRound + 1;
   let newStatus: GameState['status'] = game.status;
   let finalResult = game.result;
 
@@ -337,9 +339,8 @@ export function applyMove(
       // Compute final results
       finalResult = calculateResultsInternal(updatedBoard, game.players);
     } else {
-      newRound += 1;
-      newTurnIndex = 0;
-      newStatus = 'playing';
+      // Set status to 'round_ended' instead of auto-incrementing
+      newStatus = 'round_ended';
     }
   } else {
     // Round is still ongoing. If we are playing but already endPending was true before, keep it.
@@ -357,6 +358,23 @@ export function applyMove(
     endTriggeredByMoveId,
     endTriggeredAtRound,
     result: finalResult,
+    roundRevealed: newStatus === 'round_ended' ? false : game.roundRevealed,
+    roundTopView: newStatus === 'round_ended' ? null : game.roundTopView,
+  };
+}
+
+// 12.5. Start Next Round (Core transition)
+export function startNextRound(game: GameState): GameState {
+  if (game.status !== 'round_ended') {
+    return game;
+  }
+  return {
+    ...game,
+    round: game.round + 1,
+    turnIndexInRound: 0,
+    status: game.endPending ? 'end_pending' : 'playing',
+    roundRevealed: false,
+    roundTopView: null,
   };
 }
 

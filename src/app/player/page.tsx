@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord } from '@/lib/rules';
+import { getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView } from '@/lib/rules';
 import { useSocket } from '@/components/SocketProvider';
-import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ListTodo, X, ScrollText } from 'lucide-react';
+import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ScrollText } from 'lucide-react';
 import BoardIsometric from '@/components/BoardIsometric';
 
 function translateReason(reason: string) {
@@ -34,8 +34,8 @@ export default function PlayerPage() {
   const [originY, setOriginY] = useState(2);
   const [rotationIndex, setRotationIndex] = useState(0);
 
-  // Modes: 'action' (my actual turn) | 'predict' (guessing opponent placements)
-  const [mode, setMode] = useState<'action' | 'predict'>('action');
+  // Modes: 'action' (my actual turn) | 'predict' (guessing opponent placements) | 'log' (history of placements)
+  const [mode, setMode] = useState<'action' | 'predict' | 'log'>('action');
 
   // Prediction state
   const [predictions, setPredictions] = useState<PlacedCell[]>([]);
@@ -45,10 +45,14 @@ export default function PlayerPage() {
 
   // History state
   const [selectedHistoryMoveId, setSelectedHistoryMoveId] = useState<string | null>(null);
-  const [lastProcessedMoveId, setLastProcessedMoveId] = useState<string | null>(null);
-  const [showLogModal, setShowLogModal] = useState(false);
+  const lastProcessedMoveIdRef = useRef<string | null>(null);
 
-  const { status, players, round, board, moves } = useGameStore();
+  // Round transition state
+  const [showRoundOverlay, setShowRoundOverlay] = useState(false);
+  const [announcedRound, setAnnouncedRound] = useState<number | null>(null);
+  const roundOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { status, players, round, board, moves, roundRevealed, roundTopView } = useGameStore();
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,9 +69,30 @@ export default function PlayerPage() {
       setJoined(true);
     };
 
+    const onRoundStarted = (nextRound: number) => {
+      if (roundOverlayTimerRef.current) {
+        clearTimeout(roundOverlayTimerRef.current);
+      }
+      setPredictions([]);
+      setSelectedHistoryMoveId(null);
+      setMode('action');
+      setAnnouncedRound(nextRound);
+      setShowRoundOverlay(true);
+      roundOverlayTimerRef.current = setTimeout(() => {
+        setShowRoundOverlay(false);
+        roundOverlayTimerRef.current = null;
+      }, 3000);
+    };
+
     socket.on('player_joined', onPlayerJoined);
+    socket.on('round_started', onRoundStarted);
     return () => {
       socket.off('player_joined', onPlayerJoined);
+      socket.off('round_started', onRoundStarted);
+      if (roundOverlayTimerRef.current) {
+        clearTimeout(roundOverlayTimerRef.current);
+        roundOverlayTimerRef.current = null;
+      }
     };
   }, [socket]);
 
@@ -76,15 +101,16 @@ export default function PlayerPage() {
     if (moves.length === 0 || !playerId) return;
     const latestMove = moves[moves.length - 1];
     
-    if (latestMove.id !== lastProcessedMoveId) {
-      setLastProcessedMoveId(latestMove.id);
+    if (latestMove.id !== lastProcessedMoveIdRef.current) {
+      lastProcessedMoveIdRef.current = latestMove.id;
       
       // If my move just failed on the server (e.g. hit an opponent's hidden block)
       if (latestMove.playerId === playerId && !latestMove.valid) {
-        triggerShake();
+        const timer = setTimeout(triggerShake, 0);
+        return () => clearTimeout(timer);
       }
     }
-  }, [moves, playerId, lastProcessedMoveId]);
+  }, [moves, playerId]);
 
   const activePlayerId = players.length > 0 ? getCurrentPlayer(useGameStore.getState()) : null;
   const isMyTurn = playerId === activePlayerId;
@@ -94,6 +120,8 @@ export default function PlayerPage() {
 
   // The actual board the player sees: Only their blocks, plus any predictions
   const myBlocks = board.filter(b => b.playerId === playerId);
+  const visibleBoard = myBlocks;
+  const sharedTopView = roundTopView ?? computeTopView([]);
 
   // Create a synthetic game state to run validations against
   const syntheticGameState: GameState = {
@@ -127,25 +155,18 @@ export default function PlayerPage() {
       targetPlayerId,
       { x: originX, y: originY, z: manualZ !== null && mode === 'predict' ? manualZ : undefined },
       currentRotationIndex === -1 ? 0 : currentRotationIndex,
-      mode === 'predict' ? { allowOverlap: true, allowFloating: true } : undefined
+      mode === 'predict'
+        ? { allowOverlap: true, allowFloating: true }
+        : { allowFloating: true }
     );
   };
 
   const validation = computeValidation();
 
-  // History Preview Validation
+  // History Preview
   const historyMove = useGameStore.getState().moves.find(m => m.id === selectedHistoryMoveId);
-  let historyCells: Coord[] = [];
-  if (historyMove && playerId) {
-    const historyValidation = validatePlacement(
-      syntheticGameState,
-      playerId,
-      historyMove.origin,
-      historyMove.rotationIndex,
-      { allowOverlap: true, allowFloating: true }
-    );
-    historyCells = historyValidation.cells;
-  }
+  const canInspectHistoryMove = Boolean(historyMove && historyMove.playerId === playerId);
+  const historyCells: Coord[] = canInspectHistoryMove ? historyMove?.cells || [] : [];
 
   const handleCellClick = (x: number, y: number) => {
     setSelectedHistoryMoveId(null); // Clear history selection on new interaction
@@ -154,56 +175,12 @@ export default function PlayerPage() {
 
     setOriginX(x);
     setOriginY(y);
-
-    if (mode === 'predict' && predictShape === '1x1') return; // No auto-rotation for 1x1
-
-    // Auto-select first valid rotation if current is invalid
-    const targetPlayerId = mode === 'action' ? playerId : activePredictionPlayerId;
-    if (targetPlayerId) {
-      const predictionOptions = mode === 'predict' ? { allowOverlap: true, allowFloating: true } : undefined;
-      const currentVal = validatePlacement(syntheticGameState, targetPlayerId, { x, y, z: manualZ !== null && mode === 'predict' ? manualZ : undefined }, rotationIndex, predictionOptions);
-      if (!currentVal.valid) {
-        let found = false;
-        for (let r = 0; r < 12; r++) {
-          const rot = (rotationIndex + r) % 12;
-          const val = validatePlacement(syntheticGameState, targetPlayerId, { x, y }, rot, predictionOptions);
-          if (val.valid) {
-            setRotationIndex(rot);
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          triggerShake();
-        }
-      }
-    }
   };
 
   const handleRotate = () => {
     setSelectedHistoryMoveId(null); // Clear history selection
     if (mode === 'predict' && predictShape === '1x1') return;
-    const targetPlayerId = mode === 'action' ? playerId : activePredictionPlayerId;
-    if (targetPlayerId) {
-      const predictionOptions = mode === 'predict' ? { allowOverlap: true, allowFloating: true } : undefined;
-      let found = false;
-      for (let i = 1; i <= 12; i++) {
-        const nextRot = (rotationIndex + i) % 12;
-        const val = validatePlacement(syntheticGameState, targetPlayerId, { x: originX, y: originY, z: manualZ !== null && mode === 'predict' ? manualZ : undefined }, nextRot, predictionOptions);
-        if (val.valid) {
-          setRotationIndex(nextRot);
-          found = true;
-          break;
-        }
-      }
-
-      // If no valid rotation exists, just do standard rotation so they can at least see it
-      if (!found) {
-        setRotationIndex((prev) => (prev + 1) % 12);
-      }
-    } else {
-      setRotationIndex((prev) => (prev + 1) % 12);
-    }
+    setRotationIndex((prev) => (prev + 1) % 12);
   };
 
   const handleConfirmMove = () => {
@@ -224,7 +201,7 @@ export default function PlayerPage() {
     } else {
       // Action mode: emit to server
       if (socket && roomCode && isMyTurn && playerId && validation.valid) {
-        socket.emit('player_move', roomCode, playerId, { x: originX, y: originY, z: validation.landingZ }, rotationIndex);
+        socket.emit('player_move', roomCode, playerId, { x: originX, y: originY }, rotationIndex);
         // Reset mode just in case
         setMode('action');
       }
@@ -240,7 +217,7 @@ export default function PlayerPage() {
       <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-zinc-950 p-6">
         <form onSubmit={handleJoin} className="w-full max-w-sm space-y-6">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-black text-white">게임 참가</h1>
+            <h1 className="text-3xl font-black text-zinc-100">게임 참가</h1>
             <p className="text-zinc-500 mt-2">호스트가 제공한 방 코드를 입력하세요</p>
           </div>
           {!isConnected && (
@@ -294,7 +271,7 @@ export default function PlayerPage() {
           <button
             type="submit"
             disabled={!isConnected || !roomCode || !nickname || !password}
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-lg font-black transition-all active:scale-95"
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-base font-bold transition-colors"
           >
             방 참가하기
           </button>
@@ -307,10 +284,10 @@ export default function PlayerPage() {
     return (
       <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-zinc-950 p-6 text-center space-y-6">
         <div className="w-20 h-20 rounded-full flex items-center justify-center bg-zinc-900 border-2 border-zinc-800 mx-auto" style={{ borderColor: me?.color }}>
-          <User className="w-8 h-8 text-white" />
+          <User className="w-8 h-8 text-zinc-100" />
         </div>
         <div>
-          <h2 className="text-2xl font-black text-white">환영합니다, {me?.name}!</h2>
+          <h2 className="text-2xl font-black text-zinc-100">환영합니다, {me?.name}!</h2>
           <p className="text-zinc-500 mt-2">호스트가 게임을 시작하기를 기다리는 중...</p>
         </div>
         <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mt-8"></div>
@@ -332,12 +309,19 @@ export default function PlayerPage() {
         .animate-shake {
           animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
         }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.4s ease-out forwards;
+        }
       `}</style>
-      <header className="px-6 py-4 bg-zinc-950/90 backdrop-blur border-b border-zinc-900 flex justify-between items-center sticky top-0 z-20">
+      <header className="px-6 py-4 bg-zinc-950/90 border-b border-zinc-900 flex justify-between items-center sticky top-0 z-20">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full border-2" style={{ borderColor: me?.color, backgroundColor: me?.color + '20' }} />
           <div>
-            <div className="text-sm font-black text-white">{me?.name}</div>
+            <div className="text-sm font-black text-zinc-100">{me?.name}</div>
             <div className="text-[10px] text-zinc-500 uppercase font-bold">플레이어 {me?.id}</div>
           </div>
         </div>
@@ -347,13 +331,12 @@ export default function PlayerPage() {
               예측 모드
             </span>
           )}
+          {mode === 'log' && (
+            <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded font-bold uppercase tracking-wider">
+              기록 모드
+            </span>
+          )}
           <div className="text-[10px] text-zinc-500 uppercase font-bold">라운드 {round}</div>
-          <button 
-            onClick={() => setShowLogModal(true)}
-            className="p-1.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors"
-          >
-            <ScrollText className="w-4 h-4" />
-          </button>
         </div>
       </header>
 
@@ -361,38 +344,68 @@ export default function PlayerPage() {
 
         {/* Mode Toggle & Turn Status */}
         <div className="w-full max-w-sm mb-4 space-y-3">
-          <div className="flex bg-zinc-900 p-1 rounded-xl">
+          {!(status === 'round_ended' && roundRevealed) && (
+            <div className="flex bg-zinc-900 p-1 rounded-xl">
             <button
-              onClick={() => setMode('action')}
+              onClick={() => {
+                setMode('action');
+                setSelectedHistoryMoveId(null);
+              }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                mode === 'action' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                mode === 'action' ? 'bg-white text-zinc-100 shadow-sm border border-zinc-800' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               <Activity className="w-4 h-4 inline-block mr-1.5" /> 행동
             </button>
             <button
-              onClick={() => setMode('predict')}
+              onClick={() => {
+                setMode('predict');
+                setSelectedHistoryMoveId(null);
+              }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
                 mode === 'predict' ? 'bg-purple-600 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               <Eye className="w-4 h-4 inline-block mr-1.5" /> 예측
             </button>
-          </div>
+            <button
+              onClick={() => {
+                setMode('log');
+                setSelectedHistoryMoveId(null);
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                mode === 'log' ? 'bg-indigo-600 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <ScrollText className="w-4 h-4 inline-block mr-1.5" /> 기록
+            </button>
+            </div>
+          )}
 
-          {mode === 'action' ? (
+          {status === 'round_ended' ? (
+            <div className="bg-indigo-900/10 border border-indigo-500/20 rounded-2xl p-4 text-center space-y-1">
+              <div className="text-xs text-indigo-600 font-bold flex items-center justify-center gap-1.5">
+                <ScrollText className="w-4 h-4" /> {round}라운드 종료
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                {roundRevealed
+                  ? "호스트가 라운드 결과를 공개했습니다. 탑뷰를 확인하세요."
+                  : "모든 플레이어가 배치를 완료했습니다. 호스트가 결과를 공개하기를 기다리고 있습니다..."}
+              </p>
+            </div>
+          ) : mode === 'action' ? (
             <div className={`rounded-2xl p-4 transition-all border ${
               isMyTurn ? 'bg-indigo-500/10 border-indigo-500 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
             }`}>
               <div className="flex items-center justify-center gap-2 font-black text-sm uppercase tracking-widest">
                 {isMyTurn ? (
-                  <><Activity className="w-5 h-5 animate-pulse" /> 당신의 차례입니다</>
+                  <><Activity className="w-5 h-5" /> 당신의 차례입니다</>
                 ) : (
                   <><User className="w-5 h-5" /> 대기 중: {players.find(p => p.id === activePlayerId)?.name}</>
                 )}
               </div>
             </div>
-          ) : (
+          ) : mode === 'predict' ? (
             <div className="bg-purple-900/20 border border-purple-500/30 rounded-2xl p-4 text-center space-y-3">
               <div className="text-xs text-purple-400 font-bold">예측할 상대를 선택하세요:</div>
               <div className="flex justify-center gap-3">
@@ -420,6 +433,15 @@ export default function PlayerPage() {
                 </button>
               </div>
             </div>
+          ) : (
+            <div className="bg-indigo-900/10 border border-indigo-500/20 rounded-2xl p-4 text-center">
+              <div className="text-xs text-indigo-400 font-bold flex items-center justify-center gap-1.5">
+                <ScrollText className="w-4 h-4" /> 배치 기록 확인 모드
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1">
+                기록을 클릭하면 해당 턴의 배치 형태가 보드에 표시됩니다.
+              </p>
+            </div>
           )}
         </div>
 
@@ -429,29 +451,150 @@ export default function PlayerPage() {
           </div>
         )}
 
-        {/* 3D Board Area */}
-        <div className={`w-full max-w-sm bg-zinc-900/40 rounded-[32px] p-4 border flex flex-col items-center shadow-2xl mb-6 relative overflow-hidden transition-colors ${
-          isShaking ? 'border-rose-500 bg-rose-500/5 animate-shake' : 'border-zinc-800'
-        }`}>
-          {mode === 'predict' && (
-            <div className="absolute inset-0 bg-purple-500/5 pointer-events-none" />
-          )}
+        {/* Hide the 3D board while the host presents the round result. */}
+        {!(status === 'round_ended' && roundRevealed) && (
+          <div className={`w-full max-w-sm bg-zinc-900/40 rounded-[32px] p-4 border flex flex-col items-center shadow-2xl mb-6 relative overflow-hidden transition-colors ${
+            isShaking ? 'border-rose-500 bg-rose-500/5 animate-shake' : 'border-zinc-800'
+          }`}>
+            {mode === 'predict' && (
+              <div className="absolute inset-0 bg-purple-500/5 pointer-events-none" />
+            )}
 
-          <BoardIsometric
-            board={myBlocks} // Only show own blocks
-            players={players}
-            predictedCells={predictions.map(c => ({
-              x: c.x, y: c.y, z: c.z, color: players.find(p => p.id === c.playerId)?.color || '#fff'
-            }))}
-            previewCells={selectedHistoryMoveId ? historyCells : (mode === 'action' ? isMyTurn : true) ? validation.cells : []}
-            isPreviewValid={selectedHistoryMoveId ? historyMove?.valid : validation.valid}
-            previewColor={selectedHistoryMoveId ? (historyMove?.valid ? '#22c55e' : '#ef4444') : (!validation.valid ? '#ef4444' : activeColor)}
-            onCellClick={handleCellClick}
-          />
-        </div>
+            <BoardIsometric
+              board={visibleBoard}
+              players={players}
+              predictedCells={predictions.map(c => ({
+                x: c.x, y: c.y, z: c.z, color: players.find(p => p.id === c.playerId)?.color || '#fff'
+              }))}
+              previewCells={selectedHistoryMoveId ? historyCells : (mode === 'action' ? isMyTurn : mode === 'predict' ? true : false) ? validation.cells : []}
+              isPreviewValid={selectedHistoryMoveId ? historyMove?.valid : validation.valid}
+              previewColor={selectedHistoryMoveId && canInspectHistoryMove ? (historyMove?.valid ? (players.find(p => p.id === historyMove.playerId)?.color || '#22c55e') : '#ef4444') : (!validation.valid ? '#ef4444' : activeColor)}
+              onCellClick={handleCellClick}
+              isHistoryPreview={!!selectedHistoryMoveId}
+            />
+          </div>
+        )}
+
+        {/* 2D Top View Share Grid for Round End */}
+        {status === 'round_ended' && roundRevealed && (
+          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl p-6 mb-6 text-center space-y-4 shadow-xl">
+            <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
+              <Eye className="w-4 h-4" /> 라운드 탑 뷰 영토 점유율
+            </h3>
+            <div className="grid grid-cols-5 gap-2 w-48 h-48 mx-auto bg-zinc-950 p-3 rounded-2xl border border-zinc-900 shadow-inner">
+              {sharedTopView.map((col, x) =>
+                col.map((cell, y) => {
+                  const pColor = cell.playerId ? players.find((p) => p.id === cell.playerId)?.color : null;
+                  return (
+                    <div
+                      key={`${x}-${y}`}
+                      className="rounded-lg aspect-square border border-white/5 flex items-center justify-center font-black text-[10px] text-white shadow-sm transition-all"
+                      style={{ backgroundColor: pColor || '#f3f4f6', boxShadow: cell.playerId ? 'inset 0 0 0 1px rgba(17,24,39,0.08)' : 'none' }}
+                    >
+                      {cell.playerId ? cell.playerId : ''}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {/* Grid ratio info */}
+            <div className="space-y-2 pt-2 text-left border-t border-zinc-800">
+              {players.map((p) => {
+                const cellCount = sharedTopView.flat().filter((cell) => cell.playerId === p.id).length;
+                const percent = Math.round((cellCount / 25) * 100);
+                return (
+                  <div key={p.id} className="flex justify-between items-center text-[10px]">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full border border-white/10" style={{ backgroundColor: p.color }} />
+                      <span className="font-extrabold text-zinc-300">{p.name}</span>
+                    </div>
+                    <span className="font-mono text-zinc-400 font-bold">{cellCount} 칸 ({percent}%)</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Action Log Tab Panel */}
+        {mode === 'log' && !(status === 'round_ended' && roundRevealed) && (
+          <div className="w-full max-w-sm space-y-3">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 max-h-[300px] overflow-y-auto space-y-2 custom-scrollbar">
+              <div className="text-xs font-bold text-zinc-400 mb-2 flex justify-between items-center">
+                <span>배치 기록 (클릭하여 위치 확인)</span>
+                {selectedHistoryMoveId && (
+                  <button
+                    onClick={() => setSelectedHistoryMoveId(null)}
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 transition-colors"
+                  >
+                    미리보기 해제
+                  </button>
+                )}
+              </div>
+              {moves.length === 0 ? (
+                <div className="text-center py-6 text-zinc-600 text-xs font-bold uppercase tracking-wider">
+                  기록된 행동이 없습니다.
+                </div>
+              ) : (
+                [...moves].reverse().map((move) => {
+                  const p = players.find((pl) => pl.id === move.playerId);
+                  const isSelected = selectedHistoryMoveId === move.id;
+                  const canInspectMove = move.playerId === playerId;
+                  return (
+                    <button
+                      key={move.id}
+                      onClick={() => {
+                        if (canInspectMove) {
+                          setSelectedHistoryMoveId(isSelected ? null : move.id);
+                        }
+                      }}
+                      disabled={!canInspectMove}
+                      className={`w-full text-left p-3 border rounded-xl flex justify-between items-center transition-all ${
+                        isSelected
+                          ? 'bg-indigo-650/20 border-indigo-500/50 shadow-lg ring-1 ring-indigo-500/30'
+                          : canInspectMove
+                            ? 'bg-zinc-950/40 border-zinc-900 hover:bg-zinc-900/60 hover:border-zinc-800'
+                            : 'bg-zinc-950/20 border-zinc-900 opacity-60 cursor-not-allowed'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full border border-white/10" style={{ backgroundColor: p?.color }} />
+                          <span className="font-extrabold text-zinc-200 text-xs">{p?.name || move.playerId}</span>
+                        </div>
+                        <span className="text-[9.5px] text-zinc-500 block font-mono">
+                          라운드 {move.round} · {move.valid ? `슬롯 ${move.turnIndex + 1}` : '패스'}
+                        </span>
+                        {move.valid && canInspectMove && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {move.cells.map((c, i) => (
+                              <span key={i} className="px-1 py-0.5 bg-zinc-900 border border-zinc-800 rounded font-mono text-[8.5px] text-zinc-400">
+                                {String.fromCharCode(97 + c.x)}{c.y + 1}(Z:{c.z})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {!canInspectMove && (
+                          <span className="text-[9px] text-zinc-600 font-bold">상대 배치 위치는 공개되지 않습니다</span>
+                        )}
+                      </div>
+                      <div>
+                        {move.valid ? (
+                          <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">유효</span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">스킵</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Controls */}
-        {(mode === 'action' ? isMyTurn : true) && (
+        {status !== 'round_ended' && mode !== 'log' && (mode === 'action' ? isMyTurn : true) && (
           <div className="w-full max-w-sm space-y-3">
             {mode === 'predict' && (
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex justify-between items-center text-sm">
@@ -459,8 +602,8 @@ export default function PlayerPage() {
                   {String.fromCharCode(97 + originX)}{originY + 1} <span className="uppercase text-[10px] ml-1 opacity-50">Z:</span> {manualZ !== null ? manualZ : validation.landingZ ?? 0}
                 </span>
                 <div className="flex gap-2">
-                  <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-white font-bold hover:bg-zinc-700">-</button>
-                  <button onClick={() => setManualZ((manualZ !== null ? manualZ : validation.landingZ ?? 0) + 1)} className="w-8 h-8 bg-zinc-800 rounded-lg text-white font-bold hover:bg-zinc-700">+</button>
+                  <button onClick={() => setManualZ(Math.max(0, (manualZ !== null ? manualZ : validation.landingZ ?? 0) - 1))} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">-</button>
+                  <button onClick={() => setManualZ((manualZ !== null ? manualZ : validation.landingZ ?? 0) + 1)} className="w-8 h-8 bg-zinc-800 rounded-lg text-zinc-100 font-bold hover:bg-zinc-700">+</button>
                   {manualZ !== null && (
                     <button onClick={() => setManualZ(null)} className="px-3 h-8 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-purple-600/40">자동</button>
                   )}
@@ -472,7 +615,7 @@ export default function PlayerPage() {
                 !validation.valid ? 'bg-rose-500/10 border-rose-500/30' : 'bg-zinc-900/50 border-zinc-800'
               }`}>
                 <span className="text-zinc-400 font-bold tracking-wider">
-                  {String.fromCharCode(97 + originX)}{originY + 1} <span className="uppercase text-xs ml-1 opacity-50">Z:</span> {validation.landingZ ?? 0}
+                  {String.fromCharCode(97 + originX)}{originY + 1} <span className="uppercase text-xs ml-1 opacity-50">예상 Z:</span> {validation.landingZ ?? 0}
                 </span>
                 {!validation.valid && (
                   <span className={`text-xs font-bold ${isShaking ? 'text-rose-400' : 'text-rose-500'}`}>
@@ -486,9 +629,9 @@ export default function PlayerPage() {
               <button
                 onClick={handleRotate}
                 disabled={mode === 'predict' && predictShape === '1x1'}
-                className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 border border-zinc-800"
               >
-                <RotateCw className="w-5 h-5" /> 회전
+                <RotateCw className="w-5 h-5" /> 회전 {rotationIndex + 1}/12
               </button>
               <button
                 onClick={() => {
@@ -524,60 +667,24 @@ export default function PlayerPage() {
 
       </main>
 
-      {/* Action Log Modal */}
-      {showLogModal && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-zinc-950/95 backdrop-blur-md text-white">
-          <div className="flex items-center justify-between p-4 border-b border-zinc-900">
-            <h2 className="text-sm font-black tracking-widest uppercase flex items-center gap-2">
-              <ScrollText className="w-4 h-4 text-indigo-400" /> 전체 행동 로그
-            </h2>
-            <button 
-              onClick={() => setShowLogModal(false)}
-              className="p-2 text-zinc-400 hover:text-white transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-            {moves.length === 0 ? (
-              <div className="text-center py-12 text-zinc-600 text-xs font-bold uppercase tracking-wider">
-                기록된 행동이 없습니다.
-              </div>
-            ) : (
-              [...moves].reverse().map((move) => {
-                const p = players.find((pl) => pl.id === move.playerId);
-                return (
-                  <div key={move.id} className="p-3.5 bg-zinc-900/40 border border-zinc-800 rounded-2xl flex justify-between items-start gap-2">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full border border-white/10" style={{ backgroundColor: p?.color }} />
-                        <span className="font-extrabold text-zinc-200 text-xs">{p?.name || move.playerId}</span>
-                      </div>
-                      <span className="text-[9.5px] text-zinc-500 block font-mono mt-1">
-                        라운드 {move.round} · 슬롯 {move.turnIndex + 1}
-                      </span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {move.cells.map((c, i) => (
-                          <span key={i} className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-900 rounded font-mono text-[8.5px] text-zinc-400">
-                            {c.x},{c.y},{c.z}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      {move.valid ? (
-                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md font-black text-[9px] uppercase tracking-wider">유효</span>
-                      ) : (
-                        <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md font-black text-[9px] uppercase tracking-wider" title={move.invalidReason}>스킵</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
+      {/* Round Start Overlay */}
+      {showRoundOverlay && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/90 transition-all animate-fade-in duration-300">
+          <div className="text-center space-y-4 max-w-sm px-6">
+            <div className="text-[10px] bg-indigo-500/20 text-indigo-600 border border-indigo-500/30 px-3 py-1.5 rounded-full font-bold uppercase tracking-widest inline-block">
+              ROUND START
+            </div>
+            <h1 className="text-5xl font-black text-zinc-100 tracking-tight">
+              {announcedRound ?? round}라운드 시작!
+            </h1>
+            <p className="text-zinc-400 text-xs font-bold tracking-wide leading-relaxed">
+              새로운 블록 배치가 시작됩니다. 상대방의 블록 위치를 예측해 보세요.
+            </p>
+            <div className="w-12 h-1 bg-indigo-500 mx-auto rounded-full mt-6" />
           </div>
         </div>
       )}
+
     </div>
   );
 }

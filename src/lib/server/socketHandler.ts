@@ -15,7 +15,11 @@ import {
   kickPlayer,
   resetGame,
   getRoom,
-  rejoinHost
+  rejoinHost,
+  revealRound,
+  startNextRound,
+  getHostGameState,
+  getPlayerGameState,
 } from './gameManager';
 
 export const handleSocketConnection = (
@@ -24,11 +28,22 @@ export const handleSocketConnection = (
 ) => {
   console.log(`Socket connected: ${socket.id}`);
 
-  const sendStateUpdate = (roomCode: string) => {
+  const sendStateUpdate = async (roomCode: string) => {
     const room = getRoom(roomCode);
-    if (room) {
-      io.to(roomCode).emit('game_state_update', room.gameState, roomCode);
-    }
+    if (!room) return;
+
+    const sockets = await io.in(roomCode).fetchSockets();
+    sockets.forEach((roomSocket) => {
+      if (roomSocket.data.isHost) {
+        roomSocket.emit('game_state_update', getHostGameState(room.gameState), roomCode);
+      } else if (roomSocket.data.playerId) {
+        roomSocket.emit(
+          'game_state_update',
+          getPlayerGameState(room.gameState, roomSocket.data.playerId),
+          roomCode
+        );
+      }
+    });
   };
 
   socket.on('host_create_room', () => {
@@ -37,7 +52,7 @@ export const handleSocketConnection = (
     socket.data.roomCode = roomCode;
     socket.join(roomCode);
     socket.emit('room_created', roomCode, hostSecret);
-    sendStateUpdate(roomCode);
+    void sendStateUpdate(roomCode);
   });
 
   socket.on('host_rejoin', (roomCode, hostSecret) => {
@@ -46,7 +61,7 @@ export const handleSocketConnection = (
       socket.data.roomCode = roomCode;
       socket.join(roomCode);
       socket.emit('host_rejoined');
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     } else {
       socket.emit('error_message', '방을 찾을 수 없거나 호스트 인증에 실패했습니다.');
     }
@@ -54,7 +69,7 @@ export const handleSocketConnection = (
 
   socket.on('host_start_game', (roomCode) => {
     if (startGame(roomCode, socket.id)) {
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     } else {
       socket.emit('error_message', 'Failed to start game');
     }
@@ -62,13 +77,33 @@ export const handleSocketConnection = (
 
   socket.on('host_force_skip', (roomCode) => {
     if (forceSkipTurn(roomCode, socket.id)) {
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     }
   });
 
   socket.on('host_force_end', (roomCode) => {
     if (forceEndGame(roomCode, socket.id)) {
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
+    }
+  });
+
+  socket.on('host_reveal_round', (roomCode) => {
+    if (revealRound(roomCode, socket.id)) {
+      void sendStateUpdate(roomCode);
+    } else {
+      socket.emit('error_message', '라운드 종료 후에만 결과를 공개할 수 있습니다.');
+    }
+  });
+
+  socket.on('host_start_next_round', (roomCode) => {
+    if (startNextRound(roomCode, socket.id)) {
+      void sendStateUpdate(roomCode);
+      const room = getRoom(roomCode);
+      if (room) {
+        io.to(roomCode).emit('round_started', room.gameState.round);
+      }
+    } else {
+      socket.emit('error_message', '라운드 결과를 먼저 공개해주세요.');
     }
   });
 
@@ -83,13 +118,13 @@ export const handleSocketConnection = (
           }
         });
       });
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     }
   });
 
   socket.on('host_reset_game', (roomCode) => {
     if (resetGame(roomCode, socket.id)) {
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     }
   });
 
@@ -101,7 +136,7 @@ export const handleSocketConnection = (
       socket.data.playerId = result.playerId;
       socket.join(roomCode);
       socket.emit('player_joined', result.playerId);
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     } else {
       socket.emit('error_message', result.message || 'Failed to join');
     }
@@ -115,7 +150,7 @@ export const handleSocketConnection = (
     }
 
     if (processMove(roomCode, playerId, origin, rotationIndex)) {
-      sendStateUpdate(roomCode);
+      void sendStateUpdate(roomCode);
     } else {
       socket.emit('error_message', 'Invalid move');
     }

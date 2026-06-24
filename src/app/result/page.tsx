@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
 import { PlayerId } from '@/lib/rules';
 import { useRouter } from 'next/navigation';
-import confetti from 'canvas-confetti';
-import { Trophy, RefreshCcw, Award, Sparkles, LayoutGrid, ScrollText } from 'lucide-react';
+import { Trophy, RefreshCcw, Award, LayoutGrid, ScrollText } from 'lucide-react';
 import { useSocket } from '@/components/SocketProvider';
 
 export default function ResultPage() {
@@ -21,37 +20,10 @@ export default function ResultPage() {
 
   const [highlightedPlayer, setHighlightedPlayer] = useState<PlayerId | null>(null);
 
-  useEffect(() => {
-    if (status === 'ended' && result?.winnerIds && result.winnerIds.length > 0) {
-      const duration = 2.5 * 1000;
-      const animationEnd = Date.now() + duration;
-      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 1000 };
-
-      const randomInRange = (min: number, max: number) => {
-        return Math.random() * (max - min) + min;
-      };
-
-      const interval: ReturnType<typeof setInterval> = setInterval(() => {
-        const timeLeft = animationEnd - Date.now();
-
-        if (timeLeft <= 0) {
-          return clearInterval(interval);
-        }
-
-        const particleCount = 50 * (timeLeft / duration);
-        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
-        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
-      }, 250);
-
-      return () => clearInterval(interval);
-    }
-  }, [status, result]);
-
   if (status !== 'ended' || !result) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-100 p-6 relative overflow-hidden">
-        <div className="absolute inset-0 bg-radial from-indigo-500/5 via-transparent to-transparent pointer-events-none" />
-        <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-3xl text-center space-y-5 max-w-sm backdrop-blur-xl shadow-2xl z-10 relative">
+        <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-3xl text-center space-y-5 max-w-sm shadow-lg z-10 relative">
           <h3 className="font-black text-zinc-100 text-lg tracking-tight">종료된 세션을 찾을 수 없습니다</h3>
           <p className="text-xs text-zinc-500 leading-relaxed font-medium">
             최종 순위를 계산하고 보려면 먼저 게임 세션을 완료해야 합니다.
@@ -86,11 +58,8 @@ export default function ResultPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-sans pb-16 relative overflow-hidden selection:bg-zinc-850 selection:text-white">
-      {/* Glow backgrounds */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 h-[350px] w-[600px] rounded-full bg-purple-600/10 blur-[130px] pointer-events-none" />
-
       {/* Header bar */}
-      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-md sticky top-0 z-20">
+      <header className="border-b border-zinc-900 bg-zinc-950/70 sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Trophy className="h-5.5 w-5.5 text-amber-500" />
@@ -99,7 +68,7 @@ export default function ResultPage() {
 
           <button
             onClick={handleRestart}
-            className="py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white font-black rounded-xl text-xs flex items-center gap-2 transition-all shadow-lg shadow-purple-500/25 cursor-pointer"
+            className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors"
           >
             <RefreshCcw className="h-3.5 w-3.5" />
             새 게임 시작하기
@@ -114,12 +83,8 @@ export default function ResultPage() {
         <div className="lg:col-span-7 space-y-6">
           
           {/* Victory Card */}
-          <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-[32px] text-center relative overflow-hidden backdrop-blur-xl shadow-2xl">
-            <div className="absolute top-0 right-0 p-4 text-amber-500/5">
-              <Sparkles className="h-36 w-36 rotate-12" />
-            </div>
-
-            <div className="inline-flex p-4 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-2xl mb-5 shadow-inner animate-pulse">
+          <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-[32px] text-center relative overflow-hidden shadow-lg">
+            <div className="inline-flex p-4 bg-amber-50 border border-amber-200 text-amber-600 rounded-2xl mb-5">
               <Award className="h-9 w-9" />
             </div>
 
@@ -152,7 +117,7 @@ export default function ResultPage() {
           </div>
 
           {/* Standings List */}
-          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] backdrop-blur-xl shadow-2xl">
+          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] shadow-lg">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-[10px] text-zinc-500 uppercase tracking-widest">
                 최종 순위표
@@ -177,7 +142,7 @@ export default function ResultPage() {
                       onMouseLeave={() => setHighlightedPlayer(null)}
                       className={`p-4 bg-zinc-950/40 border rounded-2xl transition-all duration-300 flex items-center justify-between gap-4 shadow-sm ${
                         isHighlighted
-                          ? 'border-purple-500 bg-purple-500/5 shadow-md'
+                          ? 'border-indigo-300 bg-indigo-50 shadow-sm'
                           : 'border-zinc-900 hover:border-zinc-800'
                       }`}
                     >
@@ -222,9 +187,9 @@ export default function ResultPage() {
         <div className="lg:col-span-5 space-y-6">
           
           {/* Top-View Matrix */}
-          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] backdrop-blur-xl shadow-2xl flex flex-col items-center">
+          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] shadow-lg flex flex-col items-center">
             <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-2 w-full">
-              <LayoutGrid className="h-4.5 w-4.5 text-purple-400" />
+              <LayoutGrid className="h-4.5 w-4.5 text-indigo-600" />
               최종 영토 탑 뷰 그리드
             </h3>
 
@@ -239,11 +204,11 @@ export default function ResultPage() {
                       key={`${x}-${y}`}
                       className="rounded-xl aspect-square border border-white/5 flex items-center justify-center font-black text-xs text-white transition-all duration-300 shadow-sm"
                       style={{
-                        backgroundColor: pColor || '#141416',
+                        backgroundColor: pColor || '#f3f4f6',
                         opacity: highlighted ? 1 : 0.25,
-                        boxShadow: cell.playerId && highlighted ? `0 0 12px ${pColor}40, inset 0 0 6px rgba(255,255,255,0.25)` : 'none',
+                        boxShadow: cell.playerId && highlighted ? 'inset 0 0 0 1px rgba(17,24,39,0.08)' : 'none',
                         borderWidth: cell.playerId && highlighted && highlightedPlayer ? '2px' : '1px',
-                        borderColor: cell.playerId && highlighted && highlightedPlayer ? '#ffffff80' : 'rgba(255,255,255,0.05)',
+                        borderColor: cell.playerId && highlighted && highlightedPlayer ? '#4f46e5' : '#e5e7eb',
                       }}
                     >
                       {cell.playerId ? cell.playerId : ''}
@@ -268,7 +233,7 @@ export default function ResultPage() {
           </div>
 
           {/* Full Game Replay Log */}
-          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] backdrop-blur-xl shadow-2xl flex flex-col max-h-[250px]">
+          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-[32px] shadow-lg flex flex-col max-h-[250px]">
             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-4 flex items-center gap-2">
               <ScrollText className="w-4.5 h-4.5 text-zinc-500" />
               게임 리플레이 기록 ({moves.length} 이동)

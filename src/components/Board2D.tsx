@@ -39,7 +39,7 @@ export default function Board2D({
     <div className="flex flex-col gap-6">
       {/* Layer Tabs */}
       {setActiveLayer && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-zinc-800">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-3 border-b border-zinc-800">
           <span className="text-xs font-bold text-zinc-500 uppercase mr-2 shrink-0">Layers:</span>
           {layers.map((z) => {
             const cellsInLayer = board.filter((c) => c.z === z).length;
@@ -52,17 +52,17 @@ export default function Board2D({
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                   activeLayer === z
                     ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                    : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-850'
+                    : 'bg-white text-zinc-500 hover:text-zinc-200 border border-zinc-850'
                 }`}
               >
                 Z={z}
                 {cellsInLayer > 0 && (
-                  <span className="ml-1 px-1 bg-zinc-800 text-zinc-300 rounded text-[10px]">
+                  <span className="ml-1 px-1 bg-gray-100 text-zinc-400 rounded text-[10px]">
                     {cellsInLayer}
                   </span>
                 )}
                 {isPreviewInLayer && (
-                  <span className="ml-1 w-1.5 h-1.5 bg-yellow-400 rounded-full inline-block animate-pulse" />
+                  <span className="ml-1 w-1.5 h-1.5 bg-amber-500 rounded-full inline-block" />
                 )}
               </button>
             );
@@ -72,7 +72,7 @@ export default function Board2D({
 
       {/* 5x5 Grid for Selected Layer */}
       <div className="flex flex-col items-center">
-        <div className="bg-zinc-900/40 p-4 rounded-2xl border border-zinc-850 backdrop-blur-sm max-w-full overflow-auto">
+        <div className="bg-white p-4 rounded-2xl border border-zinc-850 max-w-full overflow-auto shadow-sm">
           <div className="text-center mb-2">
             <span className="text-xs font-bold text-zinc-400">
               Layer Z={activeLayer} View
@@ -90,14 +90,14 @@ export default function Board2D({
 
                 let cellColorStyle = {};
                 let displayChar = '';
-                let cellClass = 'bg-zinc-950/60 border-zinc-850 hover:bg-zinc-900/60 cursor-pointer';
+                let cellClass = 'bg-gray-50 border-zinc-850 hover:bg-indigo-50 cursor-pointer';
 
                 if (cell && player) {
                   cellColorStyle = { backgroundColor: player.color };
                   displayChar = player.id;
                   cellClass = 'border-white/10 shadow-lg text-white font-black text-xs flex items-center justify-center';
                 } else if (preview) {
-                  cellClass = `flex items-center justify-center font-bold text-xs animate-pulse border-2 border-dashed ${
+                  cellClass = `flex items-center justify-center font-bold text-xs border-2 border-dashed ${
                     isPreviewValid ? 'border-emerald-500/80 bg-emerald-500/20 text-emerald-300' : 'border-rose-500/80 bg-rose-500/20 text-rose-300'
                   }`;
                   displayChar = 'P';
