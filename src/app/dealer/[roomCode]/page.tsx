@@ -5,7 +5,8 @@ import { useRouter, useParams } from 'next/navigation';
 import { useGameStore } from '@/lib/store/gameStore';
 import { BOARD_CELL_COUNT, BOARD_HEIGHT, BOARD_SIZE, getCurrentPlayer, computeTopView, getMaxHeight, PlayerId } from '@/lib/rules';
 import BoardIsometric from '@/components/BoardIsometric';
-import { Shield, RotateCcw, AlertOctagon, ListTodo, Eye, Activity, Play, Users, XCircle } from 'lucide-react';
+import TopViewGrid from '@/components/TopViewGrid';
+import { Shield, RotateCcw, AlertOctagon, ListTodo, Eye, Activity, Play, Users, XCircle, LayoutGrid } from 'lucide-react';
 import { useSocket } from '@/components/SocketProvider';
 
 export default function DealerRoomPage() {
@@ -18,6 +19,7 @@ export default function DealerRoomPage() {
 
   // History preview state
   const [selectedHistoryMoveId, setSelectedHistoryMoveId] = useState<string | null>(null);
+  const [selectedTopViewRound, setSelectedTopViewRound] = useState<number | null>(null);
 
   const {
     status,
@@ -28,10 +30,15 @@ export default function DealerRoomPage() {
     turnIndexInRound,
     endPending,
     roundRevealed,
+    topViewHistory,
   } = useGameStore();
 
   const historyMove = moves.find(m => m.id === selectedHistoryMoveId);
   const historyCells = historyMove?.cells || [];
+  const latestTopViewEntry = topViewHistory.length > 0 ? topViewHistory[topViewHistory.length - 1] : null;
+  const selectedTopViewEntry = selectedTopViewRound
+    ? topViewHistory.find((entry) => entry.round === selectedTopViewRound) ?? latestTopViewEntry
+    : latestTopViewEntry;
 
   useEffect(() => {
     if (!socket || !isConnected) return;
@@ -413,6 +420,51 @@ export default function DealerRoomPage() {
                 })
               )}
             </div>
+          </div>
+
+          <div className="p-6 bg-zinc-900/40 border border-zinc-900 rounded-3xl shadow-lg space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-left flex items-center gap-2">
+                <LayoutGrid className="h-4.5 w-4.5 text-indigo-400" />
+                공개 탑뷰 기록
+              </h2>
+              <span className="text-[10px] text-zinc-600 font-mono">{topViewHistory.length}</span>
+            </div>
+
+            {topViewHistory.length === 0 ? (
+              <div className="text-center py-6 text-zinc-600 text-xs font-bold">
+                아직 공개된 탑뷰가 없습니다.
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                  {[...topViewHistory].reverse().map((entry) => {
+                    const isSelected = selectedTopViewEntry?.round === entry.round;
+                    return (
+                      <button
+                        key={entry.round}
+                        onClick={() => setSelectedTopViewRound(entry.round)}
+                        className={`px-3 py-2 rounded-xl border text-[10px] font-black shrink-0 transition-all ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-500'
+                            : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:text-white'
+                        }`}
+                      >
+                        {entry.round}R 탑뷰
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selectedTopViewEntry && (
+                  <TopViewGrid
+                    topView={selectedTopViewEntry.topView}
+                    players={players}
+                    className="pt-1"
+                  />
+                )}
+              </>
+            )}
           </div>
         </div>
 

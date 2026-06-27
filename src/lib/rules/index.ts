@@ -64,6 +64,12 @@ export interface GameResult {
   winnerIds: PlayerId[];
 }
 
+export interface TopViewHistoryEntry {
+  round: number;
+  revealedAt: string;
+  topView: TopViewCell[][];
+}
+
 export interface GameState {
   id: string;
   status: 'setup' | 'playing' | 'end_pending' | 'ended' | 'round_ended';
@@ -79,6 +85,7 @@ export interface GameState {
   result?: GameResult;
   roundRevealed?: boolean;
   roundTopView?: TopViewCell[][] | null;
+  topViewHistory: TopViewHistoryEntry[];
 }
 
 // 1. Generate Block Rotations (from rotations module)
@@ -235,12 +242,9 @@ export function rotateArray<T>(arr: T[], offset: number): T[] {
   return [...arr.slice(normalizedOffset), ...arr.slice(0, normalizedOffset)];
 }
 
-// 7. Get Current Turn Order (Snake Draft)
+// 7. Get Current Turn Order (rotating first player each round)
 export function getCurrentTurnOrder(game: GameState): PlayerId[] {
-  if (game.round % 2 === 0) {
-    return [...game.baseTurnOrder].reverse();
-  }
-  return game.baseTurnOrder;
+  return rotateArray(game.baseTurnOrder, game.round - 1);
 }
 
 // 8. Get Current PlayerId

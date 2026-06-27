@@ -48,6 +48,9 @@ describe('gameManager round flow', () => {
     expect(revealedP1View.moves.find((move) => move.playerId === 'P2')?.cells).toEqual([]);
     expect(revealedP1View.roundTopView).toHaveLength(6);
     expect(revealedP1View.roundTopView?.flat().every((cell) => cell.z === null)).toBe(true);
+    expect(revealedP1View.topViewHistory).toHaveLength(1);
+    expect(revealedP1View.topViewHistory[0].round).toBe(1);
+    expect(revealedP1View.topViewHistory[0].topView.flat().every((cell) => cell.z === null)).toBe(true);
 
     expect(startNextRound(roomCode, hostSocketId)).toBe(true);
 
@@ -56,6 +59,7 @@ describe('gameManager round flow', () => {
     expect(getRoom(roomCode)?.gameState.turnIndexInRound).toBe(0);
     expect(getRoom(roomCode)?.gameState.roundRevealed).toBe(false);
     expect(getPlayerGameState(getRoom(roomCode)!.gameState, 'P1').roundTopView).toBeNull();
+    expect(getPlayerGameState(getRoom(roomCode)!.gameState, 'P1').topViewHistory).toHaveLength(1);
     expect(getPlayerGameState(getRoom(roomCode)!.gameState, 'P1').board.every((cell) => cell.playerId === 'P1')).toBe(true);
 
     // Round 2 starts with P2. The server uses P1's hidden block as support

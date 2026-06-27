@@ -31,6 +31,7 @@ const createEmptyGame = (): GameState => ({
   board: [],
   moves: [],
   endPending: false,
+  topViewHistory: [],
 });
 
 describe('Top Link Rules Engine', () => {
@@ -235,8 +236,14 @@ describe('Top Link Rules Engine', () => {
 
       expect(game.round).toBe(2);
       expect(game.turnIndexInRound).toBe(0);
-      expect(getCurrentPlayer(game)).toBe('P4');
-      expect(getCurrentTurnOrder(game)).toEqual(['P4', 'P3', 'P2', 'P1']);
+      expect(getCurrentPlayer(game)).toBe('P2');
+      expect(getCurrentTurnOrder(game)).toEqual(['P2', 'P3', 'P4', 'P1']);
+
+      game = {
+        ...game,
+        round: 3,
+      };
+      expect(getCurrentTurnOrder(game)).toEqual(['P3', 'P4', 'P1', 'P2']);
     });
 
     it('should consume turn and progress even if move is invalid', () => {
@@ -263,24 +270,24 @@ describe('Top Link Rules Engine', () => {
       game = startNextRound(game);
 
       // Round 2
-      game = applyMove(game, 'P4', { x: 0, y: 0, z: 1 }, 0); // P4 (z=1)
+      game = applyMove(game, 'P2', { x: 0, y: 0, z: 1 }, 0); // P2 (z=1)
       game = applyMove(game, 'P3', { x: 2, y: 0, z: 1 }, 0); // P3 (z=1)
-      game = applyMove(game, 'P2', { x: 0, y: 2, z: 1 }, 0); // P2 (z=1)
+      game = applyMove(game, 'P4', { x: 0, y: 2, z: 1 }, 0); // P4 (z=1)
       game = applyMove(game, 'P1', { x: 2, y: 2, z: 1 }, 0); // P1 (z=1) (End Round 2)
       game = startNextRound(game);
 
       // Round 3
-      game = applyMove(game, 'P1', { x: 0, y: 0, z: 2 }, 0); // P1 (z=2)
-      game = applyMove(game, 'P2', { x: 2, y: 0, z: 2 }, 0); // P2 (z=2)
-      game = applyMove(game, 'P3', { x: 0, y: 2, z: 2 }, 0); // P3 (z=2)
-      game = applyMove(game, 'P4', { x: 2, y: 2, z: 2 }, 0); // P4 (z=2) (End Round 3)
+      game = applyMove(game, 'P3', { x: 0, y: 0, z: 2 }, 0); // P3 (z=2)
+      game = applyMove(game, 'P4', { x: 2, y: 0, z: 2 }, 0); // P4 (z=2)
+      game = applyMove(game, 'P1', { x: 0, y: 2, z: 2 }, 0); // P1 (z=2)
+      game = applyMove(game, 'P2', { x: 2, y: 2, z: 2 }, 0); // P2 (z=2) (End Round 3)
       game = startNextRound(game);
 
       // Round 4
       game = applyMove(game, 'P4', { x: 0, y: 0, z: 3 }, 0); // P4 (z=3)
-      game = applyMove(game, 'P3', { x: 2, y: 0, z: 3 }, 0); // P3 (z=3)
+      game = applyMove(game, 'P1', { x: 2, y: 0, z: 3 }, 0); // P1 (z=3)
       game = applyMove(game, 'P2', { x: 0, y: 2, z: 3 }, 0); // P2 (z=3)
-      game = applyMove(game, 'P1', { x: 2, y: 2, z: 3 }, 0); // P1 (z=3) (End Round 4)
+      game = applyMove(game, 'P3', { x: 2, y: 2, z: 3 }, 0); // P3 (z=3) (End Round 4)
       game = startNextRound(game);
 
       // Round 5 - Player 1 places a block.

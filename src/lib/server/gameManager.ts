@@ -1,4 +1,4 @@
-import { GameState, Player, PlayerId, TopViewCell, applyMove, calculateResults, computeTopView, getCurrentPlayer, startNextRound as rulesStartNextRound } from '../rules/index';
+import { GameState, Player, PlayerId, TopViewCell, TopViewHistoryEntry, applyMove, calculateResults, computeTopView, getCurrentPlayer, startNextRound as rulesStartNextRound } from '../rules/index';
 
 interface Room {
   roomCode: string;
@@ -30,6 +30,7 @@ const getInitialState = (id: string): GameState => ({
   endPending: false,
   roundRevealed: false,
   roundTopView: null,
+  topViewHistory: [],
 });
 
 const withoutPasswords = (players: Player[]): Player[] => players.map((player) => ({
@@ -41,6 +42,21 @@ const withoutPasswords = (players: Player[]): Player[] => players.map((player) =
 const withoutHeight = (topView: TopViewCell[][] | null | undefined): TopViewCell[][] | null | undefined => {
   if (topView == null) return topView;
   return topView.map((column) => column.map((cell) => ({ ...cell, z: null })));
+};
+
+const withoutHeightHistory = (history: TopViewHistoryEntry[]): TopViewHistoryEntry[] => (
+  history.map((entry) => ({
+    ...entry,
+    topView: withoutHeight(entry.topView) ?? [],
+  }))
+);
+
+const upsertTopViewHistoryEntry = (
+  history: TopViewHistoryEntry[],
+  entry: TopViewHistoryEntry
+): TopViewHistoryEntry[] => {
+  const withoutCurrentRound = history.filter((item) => item.round !== entry.round);
+  return [...withoutCurrentRound, entry].sort((a, b) => a.round - b.round);
 };
 
 export const getHostGameState = (state: GameState): GameState => ({
@@ -64,6 +80,7 @@ export const getPlayerGameState = (state: GameState, playerId: PlayerId): GameSt
     ...state.result,
     topView: withoutHeight(state.result.topView) ?? [],
   } : undefined,
+  topViewHistory: withoutHeightHistory(state.topViewHistory ?? []),
 });
 
 const DEFAULT_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#eab308'];
@@ -270,7 +287,13 @@ export const revealRound = (roomCode: string, hostSocketId: string): boolean => 
   if (room.gameState.status !== 'round_ended') return false;
 
   room.gameState.roundRevealed = true;
-  room.gameState.roundTopView = withoutHeight(computeTopView(room.gameState.board));
+  const revealedTopView = withoutHeight(computeTopView(room.gameState.board)) ?? [];
+  room.gameState.roundTopView = revealedTopView;
+  room.gameState.topViewHistory = upsertTopViewHistoryEntry(room.gameState.topViewHistory ?? [], {
+    round: room.gameState.round,
+    revealedAt: new Date().toISOString(),
+    topView: revealedTopView,
+  });
   return true;
 };
 

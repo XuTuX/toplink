@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/store/gameStore';
-import { BOARD_CELL_COUNT, BOARD_HEIGHT, BOARD_SIZE, getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations, calculateLandingZ } from '@/lib/rules';
+import { BOARD_CELL_COUNT, BOARD_HEIGHT, BOARD_SIZE, getCurrentPlayer, validatePlacement, getColumnHeight, PlacedCell, GameState, PlayerId, Coord, computeTopView, generateBlockRotations } from '@/lib/rules';
 import { useSocket } from '@/components/SocketProvider';
-import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ScrollText } from 'lucide-react';
+import { User, Activity, AlertCircle, RotateCw, Send, Eye, RefreshCcw, Layers, ScrollText, LayoutGrid, Trash2 } from 'lucide-react';
 import BoardIsometric from '@/components/BoardIsometric';
+import TopViewGrid from '@/components/TopViewGrid';
 
 function translateReason(reason: string) {
   if (!reason) return '';
@@ -46,12 +47,14 @@ export default function PlayerPage() {
 
   // Prediction state
   const [predictions, setPredictions] = useState<PlacedCell[]>([]);
+  const predictionCounterRef = useRef(0);
   const [predictPlayerId, setPredictPlayerId] = useState<PlayerId | null>(null);
   const [predictShape, setPredictShape] = useState<'L-Block' | '1x1'>('1x1');
   const [manualZ, setManualZ] = useState<number | null>(null);
 
   // History state
   const [selectedHistoryMoveId, setSelectedHistoryMoveId] = useState<string | null>(null);
+  const [selectedTopViewRound, setSelectedTopViewRound] = useState<number | null>(null);
   const lastProcessedMoveIdRef = useRef<string | null>(null);
 
   // Round transition state
@@ -59,7 +62,7 @@ export default function PlayerPage() {
   const [announcedRound, setAnnouncedRound] = useState<number | null>(null);
   const roundOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { status, players, round, board, moves, roundRevealed, roundTopView } = useGameStore();
+  const { status, players, round, board, moves, roundRevealed, roundTopView, topViewHistory } = useGameStore();
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +112,7 @@ export default function PlayerPage() {
       }
       setPredictions([]);
       setSelectedHistoryMoveId(null);
+      setSelectedTopViewRound(null);
       setMode('action');
       setAnnouncedRound(nextRound);
       setShowRoundOverlay(true);
@@ -163,6 +167,10 @@ export default function PlayerPage() {
   const myBlocks = board.filter(b => b.playerId === playerId);
   const visibleBoard = myBlocks;
   const sharedTopView = roundTopView ?? computeTopView([]);
+  const latestTopViewEntry = topViewHistory.length > 0 ? topViewHistory[topViewHistory.length - 1] : null;
+  const selectedTopViewEntry = selectedTopViewRound
+    ? topViewHistory.find((entry) => entry.round === selectedTopViewRound) ?? latestTopViewEntry
+    : latestTopViewEntry;
   const latestMove = moves[moves.length - 1];
   let effectEvent: { id: string; type: 'stopped' | 'disappear'; cells: Coord[]; color: string } | null = null;
 
@@ -170,26 +178,14 @@ export default function PlayerPage() {
     const color = me?.color || '#fff';
     if (!latestMove.valid) {
       effectEvent = { id: latestMove.id, type: 'disappear', cells: latestMove.cells, color };
-    } else {
-      // Exclude the new block when calculating where it would have landed on the
-      // information visible to this player.
-      const boardBeforeMove = myBlocks.filter((cell) => cell.turnId !== latestMove.id);
-      const localLandingZ = calculateLandingZ(
-        boardBeforeMove,
-        latestMove.origin.x,
-        latestMove.origin.y,
-        latestMove.rotationIndex
-      );
-      if (localLandingZ !== null && latestMove.origin.z > localLandingZ) {
-        effectEvent = { id: latestMove.id, type: 'stopped', cells: latestMove.cells, color };
-      }
     }
   }
 
-  // Create a synthetic game state to run validations against
+  // Predictions are local notes. They can affect prediction stacking, but must
+  // not block an actual move that the authoritative server can still accept.
   const syntheticGameState: GameState = {
     ...useGameStore.getState(),
-    board: [...myBlocks, ...predictions]
+    board: mode === 'predict' ? [...myBlocks, ...predictions] : myBlocks
   };
 
   const currentRotationIndex = (mode === 'predict' && predictShape === '1x1') ? -1 : rotationIndex;
@@ -257,6 +253,15 @@ export default function PlayerPage() {
   const historyMove = useGameStore.getState().moves.find(m => m.id === selectedHistoryMoveId);
   const canInspectHistoryMove = Boolean(historyMove && historyMove.playerId === playerId);
   const historyCells: Coord[] = canInspectHistoryMove ? historyMove?.cells || [] : [];
+  const predictionGroups = predictions.reduce<Array<{ id: string; playerId: PlayerId; cells: PlacedCell[] }>>((groups, cell) => {
+    const existingGroup = groups.find((group) => group.id === cell.turnId);
+    if (existingGroup) {
+      existingGroup.cells.push(cell);
+      return groups;
+    }
+
+    return [...groups, { id: cell.turnId, playerId: cell.playerId, cells: [cell] }];
+  }, []);
 
   const handleCellClick = (x: number, y: number) => {
     setSelectedHistoryMoveId(null); // Clear history selection on new interaction
@@ -277,7 +282,8 @@ export default function PlayerPage() {
     if (mode === 'predict') {
       if (validation.valid && activePredictionPlayerId) {
         // Place prediction block locally
-        const predictionId = `prediction_${predictions.length}`;
+        predictionCounterRef.current += 1;
+        const predictionId = `prediction_${predictionCounterRef.current}`;
         const newPredictionCells: PlacedCell[] = validation.cells.map(c => ({
           x: c.x,
           y: c.y,
@@ -300,7 +306,12 @@ export default function PlayerPage() {
   };
 
   const handleClearPredictions = () => {
+    if (!window.confirm('모든 예측을 지울까요?')) return;
     setPredictions([]);
+  };
+
+  const handleRemovePrediction = (predictionId: string) => {
+    setPredictions((current) => current.filter((cell) => cell.turnId !== predictionId));
   };
 
   if (!joined) {
@@ -441,6 +452,7 @@ export default function PlayerPage() {
               onClick={() => {
                 setMode('action');
                 setSelectedHistoryMoveId(null);
+                setSelectedTopViewRound(null);
               }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
                 mode === 'action' ? 'bg-white text-zinc-100 shadow-sm border border-zinc-800' : 'text-zinc-500 hover:text-zinc-300'
@@ -452,6 +464,7 @@ export default function PlayerPage() {
               onClick={() => {
                 setMode('predict');
                 setSelectedHistoryMoveId(null);
+                setSelectedTopViewRound(null);
               }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
                 mode === 'predict' ? 'bg-purple-600 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
@@ -594,13 +607,58 @@ export default function PlayerPage() {
                 {translateReason(validation.reason || '')}
               </p>
             )}
-            {mode === 'predict' && predictions.length > 0 && (
-              <button
-                onClick={handleClearPredictions}
-                className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 border border-zinc-800"
-              >
-                <RefreshCcw className="w-4 h-4" /> 예측 초기화
-              </button>
+            {mode === 'predict' && predictionGroups.length > 0 && (
+              <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-black text-zinc-300 flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-purple-400" /> 예측 목록
+                  </span>
+                  <button
+                    onClick={handleClearPredictions}
+                    className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg font-bold transition-all text-[10px] flex items-center gap-1.5 border border-zinc-800"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" /> 전체 지우기
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                  {predictionGroups.map((prediction, index) => {
+                    const predictedPlayer = players.find((p) => p.id === prediction.playerId);
+                    return (
+                      <div
+                        key={prediction.id}
+                        className="w-full p-2.5 bg-zinc-950/60 border border-zinc-800 rounded-xl flex items-start justify-between gap-3"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-2.5 h-2.5 rounded-full border border-white/10 shrink-0"
+                              style={{ backgroundColor: predictedPlayer?.color }}
+                            />
+                            <span className="font-extrabold text-zinc-200 text-xs truncate">
+                              예측 {index + 1} · {predictedPlayer?.name || prediction.playerId}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {prediction.cells.map((cell, cellIndex) => (
+                              <span key={cellIndex} className="px-1 py-0.5 bg-zinc-900 border border-zinc-800 rounded font-mono text-[8.5px] text-zinc-400">
+                                {String.fromCharCode(97 + cell.x)}{cell.y + 1}(Z:{cell.z})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRemovePrediction(prediction.id)}
+                          className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
+                          title="예측 지우기"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -697,6 +755,50 @@ export default function PlayerPage() {
         {/* Action Log Tab Panel */}
         {mode === 'log' && !(status === 'round_ended' && roundRevealed) && (
           <div className="w-full max-w-sm space-y-3">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
+              <div className="text-xs font-bold text-zinc-400 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <LayoutGrid className="w-4 h-4 text-indigo-400" /> 공개된 탑뷰 기록
+                </span>
+                <span className="text-[10px] text-zinc-600 font-mono">{topViewHistory.length}</span>
+              </div>
+
+              {topViewHistory.length === 0 ? (
+                <div className="text-center py-5 text-zinc-600 text-xs font-bold">
+                  아직 공개된 탑뷰가 없습니다.
+                </div>
+              ) : (
+                <>
+                  <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                    {[...topViewHistory].reverse().map((entry) => {
+                      const isSelected = selectedTopViewEntry?.round === entry.round;
+                      return (
+                        <button
+                          key={entry.round}
+                          onClick={() => setSelectedTopViewRound(entry.round)}
+                          className={`px-3 py-2 rounded-xl border text-[10px] font-black shrink-0 transition-all ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white border-indigo-500'
+                              : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:text-white'
+                          }`}
+                        >
+                          {entry.round}R 탑뷰
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedTopViewEntry && (
+                    <TopViewGrid
+                      topView={selectedTopViewEntry.topView}
+                      players={players}
+                      className="pt-1"
+                    />
+                  )}
+                </>
+              )}
+            </div>
+
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 max-h-[300px] overflow-y-auto space-y-2 custom-scrollbar">
               <div className="text-xs font-bold text-zinc-400 mb-2 flex justify-between items-center">
                 <span>배치 기록 (클릭하여 위치 확인)</span>

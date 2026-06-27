@@ -17,6 +17,7 @@ const getInitialState = (): GameState => ({
   endPending: false,
   roundRevealed: false,
   roundTopView: null,
+  topViewHistory: [],
 });
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -26,6 +27,7 @@ export const useGameStore = create<GameStore>((set) => ({
     set({
       ...state,
       roundTopView: state.roundTopView ?? null,
+      topViewHistory: state.topViewHistory ?? [],
     });
   },
 }));
